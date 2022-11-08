@@ -1,0 +1,3662 @@
+diff --git a/official/cv/Deepsort/README.md b/official/cv/Deepsort/README.md
+index a7135f45e6e3918bdb891df703337e185ab2f438..5b706ed9e40234a0730e362b968176ff4f5a86b9 100644
+--- a/official/cv/Deepsort/README.md
++++ b/official/cv/Deepsort/README.md
+@@ -21,6 +21,9 @@
+         - [Usage](#usage-1)
+             - [Running on GPU](#running-on-gpu-1)
+             - [Running on Ascend](#running-on-ascend-1)
++        - [Result](#result)
++    - [Inference Process](#inference-process)
++        - [Export mindir model](export-mindir-model)
+         - [Result](#result-1)
+ - [Model Description](#model-description)
+     - [Performance](#performance)
+@@ -274,12 +277,33 @@ Example of output in log file：
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
++Currently only batch_Size of 1 can be processed.
++
+ ### Export mindir model
+ 
+ ```shell
+ python export.py --device_id [DEVICE_ID] --ckpt_file [CKPT_PATH]
+ ```
+ 
++Argument `ckpt_file` is required, `FILE_FORMAT` must be selected from ["AIR", "MINDIR"].
++
++```shell
++# Ascend310 infer
++bash run_infer_310.sh [MINDIR_PATH] [DATA_PATH] [DATA_ROOT] [DATA_LIST] [DEVICE_ID]
++```
++
++`DEVICE_ID` is optional, default is 0.
++
++### Result
++
++The inference result is saved in the current path, and the final accuracy result can be seen in acc.log.
++
++| **Network**    | OS=16 | OS=8 | MS   | Flip  | mIOU  | mIOU in paper |
++| :----------: | :-----: | :----: | :----: | :-----: | :-----: | :-------------: |
++| deeplab_v3 |       | √    |      |       | 78.84 | 78.51    |
++
+ # [Model Description](#contents)
+ 
+ ## [Performance](#contents)
+@@ -316,4 +340,4 @@ We set random seed inside train.py.
+ 
+ # [ModelZoo Homepage](#contents)
+ 
+- Please check the official [homepage](https://gitee.com/mindspore/models).
+\ No newline at end of file
++ Please check the official [homepage](https://gitee.com/mindspore/models).
+diff --git a/official/cv/Deepsort/scripts/run_infer_310.sh b/official/cv/Deepsort/scripts/run_infer_310.sh
+index fd4918aadbdc149fa19ada366d75de844f84df97..240ce01744b132c53a83f8ffe36d4a703a549c81 100644
+--- a/official/cv/Deepsort/scripts/run_infer_310.sh
++++ b/official/cv/Deepsort/scripts/run_infer_310.sh
+@@ -51,16 +51,6 @@ echo "det path: "$det_path
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/FCN8s/README.md b/official/cv/FCN8s/README.md
+index bf8cef5431e58a118d778c798216fbefeca53c36..8cf037fe3eaa9d2c635597368e16b791a1dc76a2 100644
+--- a/official/cv/FCN8s/README.md
++++ b/official/cv/FCN8s/README.md
+@@ -1,544 +1,355 @@
+-# Contents
+-
+-- [Contents](#contents)
+-- [FCN 介绍](#fcn-介绍)
+-- [模型架构](#模型架构)
+-- [数据集](#数据集)
+-- [环境要求](#环境要求)
+-- [快速开始](#快速开始)
+-- [脚本介绍](#脚本介绍)
+-    - [脚本以及简单代码](#脚本以及简单代码)
+-    - [脚本参数](#脚本参数)
+-    - [生成数据步骤](#生成数据步骤)
+-        - [训练数据](#训练数据)
+-    - [训练步骤](#训练步骤)
+-        - [训练](#训练)
+-    - [评估步骤](#评估步骤)
+-        - [评估](#评估)
+-    - [导出过程](#导出过程)
+-        - [导出](#导出)
+-    - [推理过程](#推理过程)
+-        - [推理](#推理)
+-- [模型介绍](#模型介绍)
+-    - [性能](#性能)
+-        - [评估性能](#评估性能)
+-            - [FCN8s on PASCAL VOC 2012](#fcn8s-on-pascal-voc-2012)
+-        - [Inference Performance](#inference-performance)
+-            - [FCN8s on PASCAL VOC](#fcn8s-on-pascal-voc)
+-    - [如何使用](#如何使用)
+-        - [教程](#教程)
+-- [Set context](#set-context)
+-- [Load dataset](#load-dataset)
+-- [Define model](#define-model)
+-- [optimizer](#optimizer)
+-- [loss scale](#loss-scale)
+-- [callback for saving ckpts](#callback-for-saving-ckpts)
+-- [随机事件介绍](#随机事件介绍)
+-- [ModelZoo 主页](#modelzoo-主页)
+-
+-# [FCN 介绍](#contents)
+-
+-FCN主要用用于图像分割领域，是一种端到端的分割方法。FCN丢弃了全连接层，使得其能够处理任意大小的图像，且减少了模型的参数量，提高了模型的分割速度。FCN在编码部分使用了VGG的结构，在解码部分中使用反卷积/上采样操作恢复图像的分辨率。FCN-8s最后使用8倍的反卷积/上采样操作将输出分割图恢复到与输入图像相同大小。
+-
+-[Paper]: Long, Jonathan, Evan Shelhamer, and Trevor Darrell. "Fully convolutional networks for semantic segmentation." Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. 2015.
+-
+-# [模型架构](#contents)
+-
+-FCN-8s使用丢弃全连接操作的VGG16作为编码部分，并分别融合VGG16中第3,4,5个池化层特征，最后使用stride=8的反卷积获得分割图像。
+-
+-# [数据集](#contents)
+-
+-Dataset used:
+-
+-[PASCAL VOC 2012](<http://host.robots.ox.ac.uk/pascal/VOC/voc2012/index.html>)
+-
+-[SBD](<http://www.eecs.berkeley.edu/Research/Projects/CS/vision/grouping/semantic_contours/benchmark.tgz>)
+-
+-# [环境要求](#contents)
+-
+-- 硬件（Ascend/GPU）
+-    - 需要准备具有Ascend或GPU处理能力的硬件环境.
+-- 框架
+-    - [MindSpore](https://www.mindspore.cn/install/en)
+-- 如需获取更多信息，请查看如下链接：
+-    - [MindSpore Tutorials](https://www.mindspore.cn/tutorials/zh-CN/master/index.html)
+-    - [MindSpore Python API](https://www.mindspore.cn/docs/zh-CN/master/index.html)
+-
+-# [快速开始](#contents)
+-
+-在通过官方网站安装MindSpore之后，你可以通过如下步骤开始训练以及评估：
+-
+-```backbone
+-vgg16训练ImageNet数据集的ckpt文件做为FCN8s的backbone
+-vgg16网络路径: model_zoo/official/cv/vgg16
+-```
+-
+-```default_config.yaml
+-data_file: /home/DataSet/voc2012/vocaug_mindrecords/vocaug.mindrecord0
+-ckpt_vgg16: /home/DataSet/predtrained/vgg16_predtrained.ckpt
+-data_root: /home/DataSet/voc2012/VOCdevkit/VOC2012
+-data_lst: /home/DataSet/voc2012/VOCdevkit/VOC2012/ImageSets/Segmentation/val.txt
+-ckpt_file: /home/FCN8s/ckpt/FCN8s_1-133_300.ckpt
+-
+-根据本地数据存放路径修改参数
+-```
+-
+-- running on Ascend with default parameters
+-
+-  ```python
+-  # Ascend单卡训练示例
+-  python train.py --device_id device_id
+-
+-  # Ascend评估示例
+-  python eval.py --device_id device_id
+-  ```
+-
+-- running on GPU with gpu default parameters
+-
+-  ```python
+-  # GPU单卡训练示例
+-  python train.py  \
+-  --config_path=gpu_default_config.yaml  \
+-  --device_target=GPU
+-
+-  # GPU多卡训练示例
+-  export RANK_SIZE=8
+-  mpirun --allow-run-as-root -n $RANK_SIZE --output-filename log_output --merge-stderr-to-stdout  \
+-  python train.py  \
+-  --config_path=gpu_default_config.yaml \
+-  --device_target=GPU
+-
+-  # GPU评估示例
+-  python eval.py  \
+-  --config_path=gpu_default_config.yaml  \
+-  --device_target=GPU
+-  ```
+-
+-# [脚本介绍](#contents)
+-
+-## [脚本以及简单代码](#contents)
+-
+-```python
+-├── model_zoo
+-    ├── README.md                     // descriptions about all the models
+-    ├── FCN8s
+-        ├── README.md                 // descriptions about FCN
+-        ├── ascend310_infer           // 实现310推理源代码
+-        ├── scripts
+-            ├── run_train.sh
+-            ├── run_standalone_train.sh
+-            ├── run_standalone_train_gpu.sh             // train in gpu with single device
+-            ├── run_distribute_train_gpu.sh             // train in gpu with multi device
+-            ├── run_eval.sh
+-            ├── run_infer_310.sh         // Ascend推理shell脚本
+-            ├── build_data.sh
+-        ├── src
+-        │   ├──data
+-        │       ├──build_seg_data.py       // creating dataset
+-        │       ├──dataset.py          // loading dataset
+-        │   ├──nets
+-        │       ├──FCN8s.py            // FCN-8s architecture
+-        │   ├──loss
+-        │       ├──loss.py            // loss function
+-        │   ├──utils
+-        │       ├──lr_scheduler.py            // getting learning_rateFCN-8s
+-        │   ├──model_utils
+-        │       ├──config.py                     // getting config parameters
+-        │       ├──device_adapter.py            // getting device info
+-        │       ├──local_adapter.py            // getting device info
+-        │       ├──moxing_adapter.py          // Decorator
+-        ├── default_config.yaml               // Ascend parameters config
+-        ├── gpu_default_config.yaml           // GPU parameters config
+-        ├── train.py                 // training script
+-        ├── postprogress.py          // 310推理后处理脚本
+-        ├── export.py                // 将checkpoint文件导出到air/mindir
+-        ├── eval.py                  //  evaluation script
+-```
+-
+-## [脚本参数](#contents)
+-
+-训练以及评估的参数可以在default_config.yaml中设置
+-
+-- config for FCN8s
+-
+-  ```default_config.yaml
+-     # dataset
+-    'data_file': '/data/workspace/mindspore_dataset/FCN/FCN/dataset/MINDRECORED_NAME.mindrecord', # path and name of one mindrecord file
+-    'train_batch_size': 32,
+-    'crop_size': 512,
+-    'image_mean': [103.53, 116.28, 123.675],
+-    'image_std': [57.375, 57.120, 58.395],
+-    'min_scale': 0.5,
+-    'max_scale': 2.0,
+-    'ignore_label': 255,
+-    'num_classes': 21,
+-
+-    # optimizer
+-    'train_epochs': 500,
+-    'base_lr': 0.015,
+-    'loss_scale': 1024.0,
+-
+-    # model
+-    'model': 'FCN8s',
+-    'ckpt_vgg16': '',
+-    'ckpt_pre_trained': '',
+-
+-    # train
+-    'save_steps': 330,
+-    'keep_checkpoint_max': 5,
+-    'ckpt_dir': './ckpt',
+-  ```
+-
+-如需获取更多信息，Ascend请查看`default_config.yaml`, GPU请查看`gpu_default_config.yaml`.
+-
+-## [生成数据步骤](#contents)
+-
+-### 训练数据
+-
+-- build mindrecord training data
+-
+-下载得到的benchmark.tgz和VOCtrainval_11-May-2012.tar文件解压后放在/path_to_data/fcn8s_data目录下
+-
+-  ```python
+-  python src/data/get_dataset_list.py --data_dir=/path_to_data/fcn8s_data
+-
+-  bash build_data.sh
+-  or
+-  python src/data/build_seg_data.py  --data_root=/path_to_data/fcn8s_data/benchmark_RELEASE/dataset  \
+-                                     --data_lst=/path_to_data/fcn8s_data/vocaug_train_lst.txt  \
+-                                     --dst_path=dataset/MINDRECORED_NAME.mindrecord  \
+-                                     --num_shards=1  \
+-                                     --shuffle=True
+-  data_root: 训练数据集的总目录包含两个子目录img和cls_png，img目录下存放训练图像，cls_png目录下存放标签mask图像，
+-  data_lst: 存放训练样本的名称列表文档，每行一个样本。
+-  dst_path: 生成mindrecord数据的目标位置
+-  ```
+-
+-## [训练步骤](#contents)
+-
+-### 训练
+-
+-- running on Ascend with default parameters
+-
+-  ```python
+-  # Ascend单卡训练示例
+-  python train.py --device_id device_id
+-  or
+-  bash scripts/run_standalone_train.sh [DEVICE_ID]
+-  # example: bash scripts/run_standalone_train.sh 0
+-
+-  #Ascend八卡并行训练
+-  bash scripts/run_train.sh [DEVICE_NUM] rank_table.json
+-  # example: bash scripts/run_train.sh 8 ~/hccl_8p.json
+-  ```
+-
+-  分布式训练需要提前创建JSON格式的HCCL配置文件,请遵循[链接说明](https://gitee.com/mindspore/models/tree/master/utils/hccl_tools)
+-
+-- running on GPU with gpu default parameters
+-
+-  ```python
+-  # GPU单卡训练示例
+-  python train.py  \
+-  --config_path=gpu_default_config.yaml  \
+-  --device_target=GPU
+-  or
+-  bash scripts/run_standalone_train_gpu.sh DEVICE_ID
+-
+-  # GPU八卡训练示例
+-  export RANK_SIZE=8
+-  mpirun --allow-run-as-root -n $RANK_SIZE --output-filename log_output --merge-stderr-to-stdout  \
+-  python train.py  \
+-  --config_path=gpu_default_config.yaml \
+-  --device_target=GPU
+-  or
+-  bash run_distribute_train_gpu.sh [RANK_SIZE] [TRAIN_DATA_DIR]
+-
+-  # GPU评估示例
+-  python eval.py  \
+-  --config_path=gpu_default_config.yaml \
+-  --device_target=GPU
+-  ```
+-
+-  训练时，训练过程中的epch和step以及此时的loss和精确度会呈现log.txt中:
+-
+-  ```python
+-  epoch: * step: **, loss is ****
+-  ...
+-  ```
+-
+-  此模型的checkpoint会在默认路径下存储
+-
+-- 如果要在modelarts上进行模型的训练，可以参考modelarts的[官方指导文档](https://support.huaweicloud.com/modelarts/) 开始进行模型的训练和推理，具体操作如下：
+-
+-```ModelArts
+-#  在ModelArts上使用分布式训练示例:
+-#  数据集存放方式
+-
+-#  ├── VOC2012                                                     # dir
+-#    ├── VOCdevkit                                                 # VOCdevkit dir
+-#      ├── Please refer to VOCdevkit structure  
+-#    ├── benchmark_RELEASE                                         # benchmark_RELEASE dir
+-#      ├── Please refer to benchmark_RELEASE structure
+-#    ├── backbone                                                  # backbone dir
+-#      ├── vgg_predtrained.ckpt
+-#    ├── predtrained                                               # predtrained dir
+-#      ├── FCN8s_1-133_300.ckpt
+-#    ├── checkpoint                                                # checkpoint dir
+-#      ├── FCN8s_1-133_300.ckpt
+-#    ├── vocaug_mindrecords                                        # train dataset dir
+-#      ├── voctrain.mindrecords0
+-#      ├── voctrain.mindrecords0.db
+-#      ├── voctrain.mindrecords1
+-#      ├── voctrain.mindrecords1.db
+-#      ├── voctrain.mindrecords2
+-#      ├── voctrain.mindrecords2.db
+-#      ├── voctrain.mindrecords3
+-#      ├── voctrain.mindrecords3.db
+-#      ├── voctrain.mindrecords4
+-#      ├── voctrain.mindrecords4.db
+-#      ├── voctrain.mindrecords5
+-#      ├── voctrain.mindrecords5.db
+-#      ├── voctrain.mindrecords6
+-#      ├── voctrain.mindrecords6.db
+-#      ├── voctrain.mindrecords7
+-#      ├── voctrain.mindrecords7.db
+-
+-# (1) 选择a(修改yaml文件参数)或者b(ModelArts创建训练作业修改参数)其中一种方式
+-#       a. 设置 "enable_modelarts=True"
+-#          设置 "ckpt_dir=/cache/train/outputs_FCN8s/"
+-#          设置 "ckpt_vgg16=/cache/data/backbone/vgg_predtrain file"  如果没有预训练 ckpt_vgg16=""
+-#          设置 "ckpt_pre_trained=/cache/data/predtrained/pred file" 如果无需继续训练 ckpt_pre_trained=""
+-#          设置 "data_file=/cache/data/vocaug_mindrecords/voctrain.mindrecords0"
+-
+-#       b. 增加 "enable_modelarts=True" 参数在modearts的界面上
+-#          在modelarts的界面上设置方法a所需要的参数
+-#          注意：路径参数不需要加引号
+-
+-# (2)设置网络配置文件的路径 "_config_path=/The path of config in default_config.yaml/"
+-# (3) 在modelarts的界面上设置代码的路径 "/path/FCN8s"
+-# (4) 在modelarts的界面上设置模型的启动文件 "train.py"
+-# (5) 在modelarts的界面上设置模型的数据路径 ".../VOC2012"(选择VOC2012文件夹路径)
+-# 模型的输出路径"Output file path" 和模型的日志路径 "Job log path"
+-# (6) 开始模型的训练
+-
+-# 在modelarts上使用模型推理的示例
+-# (1) 把训练好的模型地方到桶的对应位置
+-# (2) 选择a或者b其中一种方式
+-#       a. 设置 "enable_modelarts=True"
+-#          设置 "data_root=/cache/data/VOCdevkit/VOC2012/"
+-#          设置 "data_lst=./ImageSets/Segmentation/val.txt"
+-#          设置 "ckpt_file=/cache/data/checkpoint/ckpt file name"
+-
+-#       b. 增加 "enable_modelarts=True" 参数在modearts的界面上
+-#          在modelarts的界面上设置方法a所需要的参数
+-#          注意：路径参数不需要加引号
+-
+-# (3) 设置网络配置文件的路径 "_config_path=/The path of config in default_config.yaml/"
+-# (4) 在modelarts的界面上设置代码的路径 "/path/FCN8s"
+-# (5) 在modelarts的界面上设置模型的启动文件 "eval.py"
+-# (6) 在modelarts的界面上设置模型的数据路径 ".../VOC2012"(选择VOC2012文件夹路径) ,
+-# 模型的输出路径"Output file path" 和模型的日志路径 "Job log path"
+-# (7) 开始模型的推理
+-```
+-
+-## [评估步骤](#contents)
+-
+-### 评估
+-
+-- 在Ascend或GPU上使用PASCAL VOC 2012 验证集进行评估
+-
+-  在使用命令运行前，请检查用于评估的checkpoint的路径。请设置路径为到checkpoint的绝对路径，如 "/data/workspace/mindspore_dataset/FCN/FCN/model_new/FCN8s-500_82.ckpt"。
+-
+-- eval on Ascend
+-
+-  ```python
+-  python eval.py
+-  ```
+-
+-  ```shell 评估
+-  bash scripts/run_eval.sh DATA_ROOT DATA_LST CKPT_PATH
+-  # example: bash scripts/run_eval.sh /home/DataSet/voc2012/VOCdevkit/VOC2012 \
+-  # /home/DataSet/voc2012/VOCdevkit/VOC2012/ImageSets/Segmentation/val.txt /home/FCN8s/ckpt/FCN8s_1-133_300.ckpt
+-  ```
+-
+-  以上的python命令会在终端上运行，你可以在终端上查看此次评估的结果。测试集的精确度会以类似如下方式呈现：
+-
+-  ```python
+-  mean IoU  0.6467
+-  ```
+-
+-## 导出过程
+-
+-### 导出
+-
+-在导出之前需要修改default_config.yaml配置文件中的ckpt_file配置项，file_name和file_format配置项根据情况修改.
+-
+-```shell
+-python export.py
+-```
+-
+-- 在modelarts上导出MindIR
+-
+-```Modelarts
+-在ModelArts上导出MindIR示例
+-数据集存放方式同Modelart训练
+-# (1) 选择a(修改yaml文件参数)或者b(ModelArts创建训练作业修改参数)其中一种方式。
+-#       a. 设置 "enable_modelarts=True"
+-#          设置 "file_name=fcn8s"
+-#          设置 "file_format=MINDIR"
+-#          设置 "ckpt_file=/cache/data/checkpoint file name"
+-
+-#       b. 增加 "enable_modelarts=True" 参数在modearts的界面上。
+-#          在modelarts的界面上设置方法a所需要的参数
+-#          注意：路径参数不需要加引号
+-# (2)设置网络配置文件的路径 "_config_path=/The path of config in default_config.yaml/"
+-# (3) 在modelarts的界面上设置代码的路径 "/path/fcn8s"。
+-# (4) 在modelarts的界面上设置模型的启动文件 "export.py" 。
+-# (5) 在modelarts的界面上设置模型的数据路径 ".../VOC2012/checkpoint"(选择VOC2012/checkpoint文件夹路径) ,
+-# MindIR的输出路径"Output file path" 和模型的日志路径 "Job log path" 。
+-```
+-
+-## 推理过程
+-
+-### 推理
+-
+-在还行推理之前我们需要先导出模型。Air模型只能在昇腾910环境上导出，mindir可以在任意环境上导出。batch_size只支持1。
+-
+-  ```shell
+-  # Ascend310 inference
+-  bash run_infer_310.sh [MINDIR_PATH] [DATA_LIST_FILE] [IMAGE_PATH] [MASK_PATH] [DEVICE_ID]
+-  ```
+-
+-推理的结果保存在当前目录下，在acc.log日志文件中可以找到类似以下的结果。
+-
+-  ```python
+-  mean IoU  0.0.64519877
+-  ```
+-
+-- eval on GPU
+-
+-  ```python
+-  python eval.py  \
+-  --config_path=gpu_default_config.yaml  \
+-  --device_target=GPU
+-  ```
+-
+-  以上的python命令会在终端上运行，你可以在终端上查看此次评估的结果。测试集的精确度会以类似如下方式呈现：
+-
+-  ```python
+-  mean IoU  0.6472
+-  ```
+-
+-# [模型介绍](#contents)
+-
+-## [性能](#contents)
+-
+-### 评估性能
+-
+-#### FCN8s on PASCAL VOC 2012
+-
+-| Parameters                 | Ascend                                                      | GPU                                              |
+-| -------------------------- | ------------------------------------------------------------| -------------------------------------------------|
+-| Model Version              | FCN-8s                                                      | FCN-8s                                           |
+-| Resource                   | Ascend 910; CPU 2.60GHz, 192cores; Memory 755G; OS Euler2.8 | NV SMX2 V100-32G                                 |
+-| uploaded Date              | 12/30/2020 (month/day/year)                                 | 06/11/2021 (month/day/year)                      |
+-| MindSpore Version          | 1.1.0                                                       | 1.2.0                                            |
+-| Dataset                    | PASCAL VOC 2012 and SBD                                     | PASCAL VOC 2012 and SBD                          |
+-| Training Parameters        | epoch=500, steps=330, batch_size = 32, lr=0.015             | epoch=500, steps=330, batch_size = 8, lr=0.005   |
+-| Optimizer                  | Momentum                                                    | Momentum                                         |
+-| Loss Function              | Softmax Cross Entropy                                       | Softmax Cross Entropy                            |
+-| outputs                    | probability                                                 | probability                                      |
+-| Loss                       | 0.038                                                       | 0.036                                            |
+-| Speed                      | 1pc: 564.652 ms/step;                                       | 1pc: 455.460 ms/step;                            |
+-| Scripts                    | [FCN script](https://gitee.com/mindspore/models/tree/master/official/cv/FCN8s)
+-
+-### Inference Performance
+-
+-#### FCN8s on PASCAL VOC
+-
+-| Parameters          | Ascend                      | GPU
+-| ------------------- | --------------------------- | ---------------------------
+-| Model Version       | FCN-8s                      | FCN-8s
+-| Resource            | Ascend 910; OS Euler2.8     | NV SMX2 V100-32G
+-| Uploaded Date       | 10/29/2020 (month/day/year) | 06/11/2021 (month/day/year)
+-| MindSpore Version   | 1.1.0                       | 1.2.0
+-| Dataset             | PASCAL VOC 2012             | PASCAL VOC 2012
+-| batch_size          | 16                          | 16
+-| outputs             | probability                 | probability
+-| mean IoU            | 64.67                       | 64.72
+-
+-## [如何使用](#contents)
+-
+-### 教程
+-
+-如果你需要在不同硬件平台（如GPU，Ascend 910 或者 Ascend 310）使用训练好的模型，你可以参考这个 [Link](https://www.mindspore.cn/tutorials/experts/zh-CN/master/infer/inference.html)。以下是一个简单例子的步骤介绍：
+-
+-- Running on Ascend
+-
+-  ```
+-  # Set context
+-  context.set_context(mode=context.GRAPH_MODE, device_target=args_opt.device_target, save_graphs=False)
+-  context.set_auto_parallel_context(device_num=device_num,parallel_mode=ParallelMode.DATA_PARALLEL)
+-  init()
+-
+-  # Load dataset
+-  dataset = data_generator.SegDataset(image_mean=cfg.image_mean,
+-                                      image_std=cfg.image_std,
+-                                      data_file=cfg.data_file,
+-                                      batch_size=cfg.batch_size,
+-                                      crop_size=cfg.crop_size,
+-                                      max_scale=cfg.max_scale,
+-                                      min_scale=cfg.min_scale,
+-                                      ignore_label=cfg.ignore_label,
+-                                      num_classes=cfg.num_classes,
+-                                      num_readers=2,
+-                                      num_parallel_calls=4,
+-                                      shard_id=args.rank,
+-                                      shard_num=args.group_size)
+-  dataset = dataset.get_dataset(repeat=1)
+-
+-  # Define model
+-  net = FCN8s(n_class=cfg.num_classes)
+-  loss_ = loss.SoftmaxCrossEntropyLoss(cfg.num_classes, cfg.ignore_label)
+-
+-  # optimizer
+-  iters_per_epoch = dataset.get_dataset_size()
+-  total_train_steps = iters_per_epoch * cfg.train_epochs
+-
+-  lr_scheduler = CosineAnnealingLR(cfg.base_lr,
+-                                   cfg.train_epochs,
+-                                   iters_per_epoch,
+-                                   cfg.train_epochs,
+-                                   warmup_epochs=0,
+-                                   eta_min=0)
+-  lr = Tensor(lr_scheduler.get_lr())
+-
+-  # loss scale
+-  manager_loss_scale = FixedLossScaleManager(cfg.loss_scale, drop_overflow_update=False)
+-
+-  optimizer = nn.Momentum(params=net.trainable_params(), learning_rate=lr, momentum=0.9, weight_decay=0.0001,
+-                          loss_scale=cfg.loss_scale)
+-
+-  model = Model(net, loss_fn=loss_, loss_scale_manager=manager_loss_scale, optimizer=optimizer, amp_level="O3")
+-
+-  # callback for saving ckpts
+-  time_cb = TimeMonitor(data_size=iters_per_epoch)
+-  loss_cb = LossMonitor()
+-  cbs = [time_cb, loss_cb]
+-
+-  if args.rank == 0:
+-      config_ck = CheckpointConfig(save_checkpoint_steps=cfg.save_steps,
+-                                   keep_checkpoint_max=cfg.keep_checkpoint_max)
+-      ckpoint_cb = ModelCheckpoint(prefix=cfg.model, directory=cfg.ckpt_dir, config=config_ck)
+-      cbs.append(ckpoint_cb)
+-
+-  model.train(cfg.train_epochs, dataset, callbacks=cbs)
+-
+-# [随机事件介绍](#contents)
+-
+-我们在train.py中设置了随机种子
+-
+-# [ModelZoo 主页](#contents)
+-
+- 请查看官方网站 [homepage](https://gitee.com/mindspore/models).
+-
++# 目录
++
++- [目录](#目录)
++- [FCN8s描述](#FCN8s描述)
++- [模型架构](#模型架构)
++- [数据集](#数据集)
++- [环境要求](#环境要求)
++- [脚本说明](#脚本说明)
++    - [脚本和示例代码](#脚本和样例代码)
++    - [脚本参数](#脚本参数)
++    - [训练过程](#训练过程)
++        - [启动](#启动)
++        - [结果](#结果)
++    - [评估过程](#评估过程)
++        - [启动](#启动)
++        - [结果](#结果)
++    - [推理过程](#推理过程)
++        - [导出ONNX](#导出ONNX)
++        - [在GPU执行ONNX推理](#在GPU执行ONNX推理)
++        - [结果](#结果)
++- [模型说明](#模型说明)
++    - [训练性能](#训练性能)
++- [随机情况的描述](#随机情况的描述)
++- [ModelZoo 主页](#modelzoo-主页)
++
++# FCN8s描述
++
++FCN主要用用于图像分割领域，是一种端到端的分割方法。FCN丢弃了全连接层，使得其能够处理任意大小的图像，且减少了模型的参数量，提高了模型的分割速度。FCN在编码部分使用了VGG的结构，在解码部分中使用反卷积/上采样操作恢复图像的分辨率。FCN-8s最后使用8倍的反卷积/上采样操作将输出分割图恢复到与输入图像相同大小。
++
++[Paper]: Long, Jonathan, Evan Shelhamer, and Trevor Darrell. "Fully convolutional networks for semantic segmentation." Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. 2015.
++
++# 模型架构
++
++FCN-8s使用丢弃全连接操作的VGG16作为编码部分，并分别融合VGG16中第3,4,5个池化层特征，最后使用stride=8的反卷积获得分割图像。
++
++# 数据集
++
++- Dataset used:
++
++    [PASCAL VOC 2012](<http://host.robots.ox.ac.uk/pascal/VOC/voc2012/index.html>)
++
++# 环境要求
++
++- 硬件（Ascend/GPU）
++    - 需要准备具有Ascend或GPU处理能力的硬件环境.
++- 框架
++    - [MindSpore](https://www.mindspore.cn/install/en)
++- 如需获取更多信息，请查看如下链接：
++    - [MindSpore Tutorials](https://www.mindspore.cn/tutorials/zh-CN/master/index.html)
++    - [MindSpore Python API](https://www.mindspore.cn/docs/zh-CN/master/index.html)
++
++# 脚本说明
++
++## 脚本和样例代码
++
++```text
++├── model_zoo
++    ├── README.md                     // descriptions about all the models
++    ├── FCN8s
++        ├── README.md                 // descriptions about FCN
++        ├── ascend310_infer           // 实现310推理源代码
++        ├── scripts
++            ├── run_train.sh
++            ├── run_standalone_train.sh
++            ├── run_standalone_train_gpu.sh             // train in gpu with single device
++            ├── run_distribute_train_gpu.sh             // train in gpu with multi device
++            ├── run_eval.sh
++            ├── run_eval_onnx.sh         //用于ONNX推理的shell脚本
++            ├── run_infer_310.sh         // Ascend推理shell脚本
++            ├── build_data.sh
++        ├── src
++        │   ├──data
++        │       ├──build_seg_data.py       // creating dataset
++        │       ├──dataset.py          // loading dataset
++        │   ├──nets
++        │       ├──FCN8s.py            // FCN-8s architecture
++        │   ├──loss
++        │       ├──loss.py            // loss function
++        │   ├──utils
++        │       ├──lr_scheduler.py            // getting learning_rateFCN-8s
++        │   ├──model_utils
++        │       ├──config.py                     // getting config parameters
++        │       ├──device_adapter.py            // getting device info
++        │       ├──local_adapter.py            // getting device info
++        │       ├──moxing_adapter.py          // Decorator
++        ├── default_config.yaml               // Ascend parameters config
++        ├── gpu_default_config.yaml           // GPU parameters config
++        ├── train.py                 // training script
++        ├── postprogress.py          // 310推理后处理脚本
++        ├── export.py                // 将checkpoint文件导出到air/mindir
++        ├── eval.py                  //  evaluation script
++        ├── eval_onnx.py             //  onnx评估
++```
++
++## 脚本参数
++
++模型训练和评估过程中使用的参数可以在config.py中设置:
++
++```text
++  # dataset
++  'data_file': '/data/workspace/mindspore_dataset/FCN/FCN/dataset/MINDRECORED_NAME.mindrecord', # path and name of one mindrecord file
++  'train_batch_size': 32,
++  'crop_size': 512,
++  'image_mean': [103.53, 116.28, 123.675],
++  'image_std': [57.375, 57.120, 58.395],
++  'min_scale': 0.5,
++  'max_scale': 2.0,
++  'ignore_label': 255,
++  'num_classes': 21,
++
++  # optimizer
++  'train_epochs': 500,
++  'base_lr': 0.015,
++  'loss_scale': 1024.0,
++
++  # model
++  'model': 'FCN8s',
++  'ckpt_vgg16': '',
++  'ckpt_pre_trained': '',
++
++  # train
++  'save_steps': 330,
++  'keep_checkpoint_max': 5,
++  'ckpt_dir': './ckpt',
++```
++
++## 训练过程
++
++### 启动
++
++您可以使用python或shell脚本进行训练。
++
++```bash
++# Ascend单卡训练示例
++python train.py --device_id device_id
++or
++bash scripts/run_standalone_train.sh [DEVICE_ID]
++# example: bash scripts/run_standalone_train.sh 0
++
++#Ascend八卡并行训练
++bash scripts/run_train.sh [DEVICE_NUM] rank_table.json
++# example: bash scripts/run_train.sh 8 ~/hccl_8p.json
++
++# GPU单卡训练示例
++python train.py  \
++--config_path=gpu_default_config.yaml  \
++--device_target=GPU
++or
++bash scripts/run_standalone_train_gpu.sh DEVICE_ID
++
++# GPU八卡训练示例
++export RANK_SIZE=8
++mpirun --allow-run-as-root -n $RANK_SIZE --output-filename log_output --merge-stderr-to-stdout  \
++python train.py  \
++--config_path=gpu_default_config.yaml \
++--device_target=GPU
++or
++bash run_distribute_train_gpu.sh [RANK_SIZE] [TRAIN_DATA_DIR]
++
++# GPU评估示例
++python eval.py  \
++--config_path=gpu_default_config.yaml \
++--device_target=GPU
++```
++
++### 结果
++
++训练时，训练过程中的epch和step以及此时的loss和精确度会呈现log.txt中:
++
++```text
++epoch: * step: **, loss is ****
++...
++```
++
++此模型的checkpoint会在默认路径下存储
++
++如果要在modelarts上进行模型的训练，可以参考modelarts的[官方指导文档](https://support.huaweicloud.com/modelarts/) 开始进行模型的训练和推理，具体操作如下：
++
++```ModelArts
++#  在ModelArts上使用分布式训练示例:
++#  数据集存放方式
++
++#  ├── VOC2012                                                     # dir
++#    ├── VOCdevkit                                                 # VOCdevkit dir
++#      ├── Please refer to VOCdevkit structure  
++#    ├── benchmark_RELEASE                                         # benchmark_RELEASE dir
++#      ├── Please refer to benchmark_RELEASE structure
++#    ├── backbone                                                  # backbone dir
++#      ├── vgg_predtrained.ckpt
++#    ├── predtrained                                               # predtrained dir
++#      ├── FCN8s_1-133_300.ckpt
++#    ├── checkpoint                                                # checkpoint dir
++#      ├── FCN8s_1-133_300.ckpt
++#    ├── vocaug_mindrecords                                        # train dataset dir
++#      ├── voctrain.mindrecords0
++#      ├── voctrain.mindrecords0.db
++#      ├── voctrain.mindrecords1
++#      ├── voctrain.mindrecords1.db
++#      ├── voctrain.mindrecords2
++#      ├── voctrain.mindrecords2.db
++#      ├── voctrain.mindrecords3
++#      ├── voctrain.mindrecords3.db
++#      ├── voctrain.mindrecords4
++#      ├── voctrain.mindrecords4.db
++#      ├── voctrain.mindrecords5
++#      ├── voctrain.mindrecords5.db
++#      ├── voctrain.mindrecords6
++#      ├── voctrain.mindrecords6.db
++#      ├── voctrain.mindrecords7
++#      ├── voctrain.mindrecords7.db
++
++# (1) 选择a(修改yaml文件参数)或者b(ModelArts创建训练作业修改参数)其中一种方式
++#       a. 设置 "enable_modelarts=True"
++#          设置 "ckpt_dir=/cache/train/outputs_FCN8s/"
++#          设置 "ckpt_vgg16=/cache/data/backbone/vgg_predtrain file"  如果没有预训练 ckpt_vgg16=""
++#          设置 "ckpt_pre_trained=/cache/data/predtrained/pred file" 如果无需继续训练 ckpt_pre_trained=""
++#          设置 "data_file=/cache/data/vocaug_mindrecords/voctrain.mindrecords0"
++
++#       b. 增加 "enable_modelarts=True" 参数在modearts的界面上
++#          在modelarts的界面上设置方法a所需要的参数
++#          注意：路径参数不需要加引号
++
++# (2)设置网络配置文件的路径 "_config_path=/The path of config in default_config.yaml/"
++# (3) 在modelarts的界面上设置代码的路径 "/path/FCN8s"
++# (4) 在modelarts的界面上设置模型的启动文件 "train.py"
++# (5) 在modelarts的界面上设置模型的数据路径 ".../VOC2012"(选择VOC2012文件夹路径)
++# 模型的输出路径"Output file path" 和模型的日志路径 "Job log path"
++# (6) 开始模型的训练
++
++# 在modelarts上使用模型推理的示例
++# (1) 把训练好的模型地方到桶的对应位置
++# (2) 选择a或者b其中一种方式
++#       a. 设置 "enable_modelarts=True"
++#          设置 "data_root=/cache/data/VOCdevkit/VOC2012/"
++#          设置 "data_lst=./ImageSets/Segmentation/val.txt"
++#          设置 "ckpt_file=/cache/data/checkpoint/ckpt file name"
++
++#       b. 增加 "enable_modelarts=True" 参数在modearts的界面上
++#          在modelarts的界面上设置方法a所需要的参数
++#          注意：路径参数不需要加引号
++
++# (3) 设置网络配置文件的路径 "_config_path=/The path of config in default_config.yaml/"
++# (4) 在modelarts的界面上设置代码的路径 "/path/FCN8s"
++# (5) 在modelarts的界面上设置模型的启动文件 "eval.py"
++# (6) 在modelarts的界面上设置模型的数据路径 ".../VOC2012"(选择VOC2012文件夹路径) ,
++# 模型的输出路径"Output file path" 和模型的日志路径 "Job log path"
++# (7) 开始模型的推理
++```
++
++## 评估过程
++
++### 启动
++
++在Ascend或GPU上使用PASCAL VOC 2012 验证集进行评估
++
++在使用命令运行前，请检查用于评估的checkpoint的路径。请设置路径为到checkpoint的绝对路径，如 "/data/workspace/mindspore_dataset/FCN/FCN/model_new/FCN8s-500_82.ckpt"。
++
++```python
++python eval.py
++```
++
++```bash
++bash scripts/run_eval.sh DATA_ROOT DATA_LST CKPT_PATH
++# example: bash scripts/run_eval.sh /home/DataSet/voc2012/VOCdevkit/VOC2012 \
++# /home/DataSet/voc2012/VOCdevkit/VOC2012/ImageSets/Segmentation/val.txt /home/FCN8s/ckpt/fcn8s_ascend_v180_voc2012_official_cv_meanIoU62.7.ckpt
++```
++
++### 结果
++
++以上的python命令会在终端上运行，你可以在终端上查看此次评估的结果。测试集的精确度会以类似如下方式呈现：
++
++```text
++mean IoU 0.638887018016709
++```
++
++# 推理过程
++
++## 导出ONNX
++
++```bash
++python export.py --ckpt_file [CKPT_PATH] --file_format [EXPORT_FORMAT] --config_path [CONFIG_PATH]
++```
++
++例如：python expor
++--ckpt_file /root/zj/models/official/cv/FCN8s/checkpoint/fcn8s_ascend_v180_voc2012_official_cv_meanIoU62.7.ckpt  --file_format ONNX  --config_path /root/zj/models/official/cv/FCN8s/default_config.yaml
++
++参数ckpt_file为必填项， `EXPORT_FORMAT` 可选 ["AIR", "MINDIR", "ONNX"]. config_path 为相关配置文件.
++
++在modelarts上导出ONNX
++
++```Modelarts
++在ModelArts上导出ONNX示例
++数据集存放方式同Modelart训练
++# (1) 选择a(修改yaml文件参数)或者b(ModelArts创建训练作业修改参数)其中一种方式。
++#       a. 设置 "enable_modelarts=True"
++#          设置 "file_name=fcn8s"
++#          设置 "file_format=ONNX"
++#          设置 "ckpt_file=/cache/data/checkpoint file name"
++
++#       b. 增加 "enable_modelarts=True" 参数在modearts的界面上。
++#          在modelarts的界面上设置方法a所需要的参数
++#          注意：路径参数不需要加引号
++# (2)设置网络配置文件的路径 "_config_path=/The path of config in default_config.yaml/"
++# (3) 在modelarts的界面上设置代码的路径 "/path/fcn8s"。
++# (4) 在modelarts的界面上设置模型的启动文件 "export.py" 。
++# (5) 在modelarts的界面上设置模型的数据路径 ".../VOC2012/checkpoint"(选择VOC2012/checkpoint文件夹路径) ,
++# MindIR的输出路径"Output file path" 和模型的日志路径 "Job log path" 。
++```
++
++## 在GPU执行ONNX推理
++
++在执行推理前，ONNX文件必须通过 `export.py` 脚本导出。以下展示了使用ONNX模型执行推理的示例。
++
++```bash
++# ONNX inference
++bash scripts/run_eval_onnx.sh [ONNX_PATH][DATA_ROOT] [DATA_LST]
++```
++
++例如：bash scripts/run_eval_onnx.sh /root/zj/models/official/cv/FCN8s/fcn8s.onnx /root/zj/models/official/cv/FCN8s/dataset/VOC2012 /root/zj/models/official/cv/FCN8s/dataset/VOC2012/ImageSets/Segmentation/val.txt
++
++## 结果
++
++- eval on GPU
++
++以上的python命令会在终端上运行，你可以在终端上查看此次评估的结果。测试集的精确度会以类似如下方式呈现:
++
++```text
++mean IoU 0.6388868594659682
++```
++
++# 模型说明
++
++## 训练性能
++
++| 参数     | Ascend                                                       |
++| -------- | ------------------------------------------------------------ |
++| 模型名称 | FCN8s                                                        |
++| 运行环境 | TITAN Xp 12G                                                 |
++| 上传时间 | 2022-09-22                                                   |
++| 数据集   | PASCAL VOC 2012                                              |
++| 训练参数 | default_config.yaml                                          |
++| 优化器   | Momentum                                                     |
++| 损失函数 | Softmax Cross Entropy                                        |
++| 最终损失 | 0.036                                                        |
++| 速度     | 1pc: 455.460 ms/step;                                        |
++| mean IoU | 0.6388868594659682                                           |
++| 脚本     | [链接](https://gitee.com/mindspore/models/tree/master/official/cv/FCN8s) |
++
++# 随机情况的描述
++
++我们在 `train.py` 脚本中设置了随机种子。
++
++# ModelZoo
++
++请核对官方 [主页](https://gitee.com/mindspore/models) 。
+diff --git a/official/cv/FCN8s/scripts/run_infer_310.sh b/official/cv/FCN8s/scripts/run_infer_310.sh
+index d5987929ad8fd73120e7544785d23664a292a748..ee29f870cea192617556b8a55697c6c515cad5c3 100644
+--- a/official/cv/FCN8s/scripts/run_infer_310.sh
++++ b/official/cv/FCN8s/scripts/run_infer_310.sh
+@@ -47,16 +47,6 @@ echo $image_path
+ echo $mask_path
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/MCNN/README.md b/official/cv/MCNN/README.md
+index 4eac1e13064961f4013892ef2bb3b9f4f637a647..5989676f8b5dae843dbc4dac63fd1ea591f51700 100644
+--- a/official/cv/MCNN/README.md
++++ b/official/cv/MCNN/README.md
+@@ -92,6 +92,8 @@ bash run_eval.sh [DATA_PATH] [CKPT_NAME]
+ 
+ # [Ascend310 Inference](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ - Generate .mindir file
+ 
+ ```bash
+diff --git a/official/cv/MCNN/scripts/run_infer_310.sh b/official/cv/MCNN/scripts/run_infer_310.sh
+index 86accea06427113e67a256ef3391e625fa2df0e5..3b3ddf7ec15d4fb9257955c9a8983542fafb9f3e 100644
+--- a/official/cv/MCNN/scripts/run_infer_310.sh
++++ b/official/cv/MCNN/scripts/run_infer_310.sh
+@@ -46,16 +46,6 @@ echo $data_path
+ echo $label_path
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/RDN/README.md b/official/cv/RDN/README.md
+index 06280a7ee46434e64ea48ac17457370e074a1a50..7b1586871775b7fa954a381a6677f2977892c702 100644
+--- a/official/cv/RDN/README.md
++++ b/official/cv/RDN/README.md
+@@ -243,6 +243,8 @@ bash scripts/eval.sh [TEST_DATA_DIR] [CHECKPOINT_PATH] [DATASET_TYPE] [DEVICE_TA
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 模型导出
+ 
+ ```bash
+diff --git a/official/cv/RDN/script/run_infer_310.sh b/official/cv/RDN/script/run_infer_310.sh
+index 274dc42311cf88112d5433e1d46500e30d42556b..45e00038ecf5d0123397195b4efb6329b0cd0553 100644
+--- a/official/cv/RDN/script/run_infer_310.sh
++++ b/official/cv/RDN/script/run_infer_310.sh
+@@ -52,16 +52,6 @@ echo "scale: "$scale
+ echo "log file: "$log_file
+ echo "***************** param *****************"
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ export PYTHONPATH=$PWD:$PYTHONPATH
+ 
+ function compile_app()
+diff --git a/official/cv/alexnet/README.md b/official/cv/alexnet/README.md
+index 0bdc9b4fd8981cc0add354cbf103b8fe5dbe1077..e640eb75baf63c96c276853a6625ca801f8eee21 100644
+--- a/official/cv/alexnet/README.md
++++ b/official/cv/alexnet/README.md
+@@ -353,6 +353,8 @@ The ckpt_file parameter is required,
+ 
+ ### [Infer on Ascend310](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the mindir file must be exported by `export.py` script. We only provide an example of inference using MINDIR model.
+ Current batch_Size for imagenet2012 dataset can only be set to 1.
+ 
+diff --git a/official/cv/alexnet/README_CN.md b/official/cv/alexnet/README_CN.md
+index 6298b297b75c53fbeec7a85054b9f2f662d23efd..549a80773bfddb40f245569451b04dab70fe828f 100644
+--- a/official/cv/alexnet/README_CN.md
++++ b/official/cv/alexnet/README_CN.md
+@@ -306,6 +306,8 @@ python export.py --config_path [CONFIG_PATH] --ckpt_file [CKPT_PATH] --file_name
+ 
+ ### 在Ascend310执行推理
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ 在执行推理前，mindir文件必须通过`export.py`脚本导出。以下展示了使用minir模型执行推理的示例。
+ 目前imagenet2012数据集仅支持batch_Size为1的推理。
+ 
+diff --git a/official/cv/alexnet/scripts/run_infer_310.sh b/official/cv/alexnet/scripts/run_infer_310.sh
+index 32a9bbc87a363adc29716163057de79754ca5d5b..adbc708fcfb66c7382804c6e29954259b6732414 100644
+--- a/official/cv/alexnet/scripts/run_infer_310.sh
++++ b/official/cv/alexnet/scripts/run_infer_310.sh
+@@ -57,16 +57,6 @@ echo "dataset path: "$dataset_path
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/brdnet/README_CN.md b/official/cv/brdnet/README_CN.md
+index cc8000c88d9da3f257358b5c2ea736948ad1fb02..ba69a848ac025db40d20375a0635e0ff92ea74cd 100644
+--- a/official/cv/brdnet/README_CN.md
++++ b/official/cv/brdnet/README_CN.md
+@@ -493,6 +493,8 @@ cal_psnr.py 中的主要参数如下:
+ 
+ - 在 Ascend 310 处理器环境运行
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+   ```python
+   #通过 bash 命令启动推理
+   bash run_infer_310.sh [model_path] [data_path] [noise_image_path] [sigma] [channel] [device_id]
+diff --git a/official/cv/brdnet/README_EN.md b/official/cv/brdnet/README_EN.md
+index 13cfe69d4296fb6b144d4dda190d5b8b054c987f..0e34d10c991e19cf6454eeb71d7e9faaac2cfbbe 100644
+--- a/official/cv/brdnet/README_EN.md
++++ b/official/cv/brdnet/README_EN.md
+@@ -460,6 +460,8 @@ In addition, the metrics.csv file in this folder records the processing results
+ 
+ - Run in Ascend 310 processor environment
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+   ```shell
+   # Start inference by bash command
+   bash run_infer_310.sh [model_path] [data_path] [noise_image_path] [sigma] [channel] [device_id]
+diff --git a/official/cv/brdnet/scripts/run_infer_310.sh b/official/cv/brdnet/scripts/run_infer_310.sh
+index db57d36eed845278fe0f166854c9ad07f9b09a55..7ab1d75ec7cb6d19303011ff0028b565eb8bc676 100644
+--- a/official/cv/brdnet/scripts/run_infer_310.sh
++++ b/official/cv/brdnet/scripts/run_infer_310.sh
+@@ -50,16 +50,6 @@ echo "sigma: "$sigma
+ echo "channel: "$channel 
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer/ || exit
+diff --git a/official/cv/c3d/README.md b/official/cv/c3d/README.md
+index d765fab1cf76c90a10b19009a6b30ba2b47284d9..3206614f57e6cb600d77409bbc7c5f18f53a4afa 100644
+--- a/official/cv/c3d/README.md
++++ b/official/cv/c3d/README.md
+@@ -699,6 +699,8 @@ python export.py --ckpt_file [CKPT_PATH] --mindir_file_name [FILE_NAME] --file_f
+ 
+ ### Infer on Ascend310
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the mindir file must be exported by `export.py` script. We only provide an example of inference using MINDIR model.
+ 
+ ```shell
+diff --git a/official/cv/c3d/scripts/run_infer_310.sh b/official/cv/c3d/scripts/run_infer_310.sh
+index f6d94e25679b5e5ba8888e9321eeefbfb2fb3c00..90d8358c8bfc5974056d6c4251225250ac70509f 100644
+--- a/official/cv/c3d/scripts/run_infer_310.sh
++++ b/official/cv/c3d/scripts/run_infer_310.sh
+@@ -55,16 +55,6 @@ echo "dataset: "$dataset
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/centerface/README.md b/official/cv/centerface/README.md
+index c7c9e5d59fc7a5f8069fd8040ed48e37a683fbbe..83669509d01efb9decd0ac7597d2d3ad8193355c 100644
+--- a/official/cv/centerface/README.md
++++ b/official/cv/centerface/README.md
+@@ -789,6 +789,8 @@ The ckpt_file parameter is required,
+ 
+ ### Infer on Ascend310
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the mindir file must be exported by `export.py` script. We only provide an example of inference using MINDIR model.
+ Need to install OpenCV(Version >= 4.0), You can download it from [OpenCV](https://opencv.org/).
+ 
+diff --git a/official/cv/centerface/scripts/run_infer_310.sh b/official/cv/centerface/scripts/run_infer_310.sh
+index a0aed4ac3361fbd3436a4ede9781722742e46e09..767087d63df7a7fe62c5a93638035f2cd66becbb 100644
+--- a/official/cv/centerface/scripts/run_infer_310.sh
++++ b/official/cv/centerface/scripts/run_infer_310.sh
+@@ -45,16 +45,6 @@ echo "label path: "$label_path
+ echo "image process mode: "$DVPP
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d dataset ]; then
+diff --git a/official/cv/cnn_direction_model/README.md b/official/cv/cnn_direction_model/README.md
+index 1bbc8cb0f2284c2d7ad33bdf0347766f26c622af..102ecc26ba448c587da18fb4811173a654bb1eb0 100644
+--- a/official/cv/cnn_direction_model/README.md
++++ b/official/cv/cnn_direction_model/README.md
+@@ -248,6 +248,8 @@ Data storage method is the same as training
+ 
+ ### Usage
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, we need to export model first. Air model can only be exported in Ascend 910 environment, mindir model can be exported in any environment.
+ 
+ ```shell
+diff --git a/official/cv/cnn_direction_model/scripts/run_infer_310.sh b/official/cv/cnn_direction_model/scripts/run_infer_310.sh
+index dfd7401b11b5f163a5756083daea82d67aa8e33f..5920c0725b5b3ade25770400613f8cac92f028ed 100644
+--- a/official/cv/cnn_direction_model/scripts/run_infer_310.sh
++++ b/official/cv/cnn_direction_model/scripts/run_infer_310.sh
+@@ -37,16 +37,6 @@ fi
+ echo "mindir name: "$model
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/cnnctc/README.md b/official/cv/cnnctc/README.md
+index 6fa3548b40a298baa0e4bccd113677c66d7f8e35..ae8f472c843f959cf7c9bd2483c2cfa681e31992 100644
+--- a/official/cv/cnnctc/README.md
++++ b/official/cv/cnnctc/README.md
+@@ -94,7 +94,7 @@ This takes around 75 minutes.
+ 
+ ## Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+@@ -423,6 +423,8 @@ Data storage method is the same as training
+ 
+ ### Infer on Ascend310
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the mindir file must be exported by `export.py` script. We only provide an example of inference using MINDIR model.
+ 
+ ```shell
+diff --git a/official/cv/cnnctc/README_CN.md b/official/cv/cnnctc/README_CN.md
+index adde431d21760a8811a39078830184dc2c69c916..746cfe103eabf22b35dcb856fb0eb1daaaa767db 100644
+--- a/official/cv/cnnctc/README_CN.md
++++ b/official/cv/cnnctc/README_CN.md
+@@ -380,6 +380,8 @@ python export.py --ckpt_file [CKPT_PATH] --file_format [EXPORT_FORMAT] --TEST_BA
+ 
+ ### 在Ascend310执行推理
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ 在执行推理前，mindir文件必须通过`export.py`脚本导出。以下展示了使用mindir模型执行推理的示例。
+ 
+ ```shell
+diff --git a/official/cv/cnnctc/scripts/run_infer_310.sh b/official/cv/cnnctc/scripts/run_infer_310.sh
+index 04e050c5b95689b291a45d9a4e6a8899bab53a72..964b414347116f9a1fd17c64f77d4fe294ac5b70 100644
+--- a/official/cv/cnnctc/scripts/run_infer_310.sh
++++ b/official/cv/cnnctc/scripts/run_infer_310.sh
+@@ -42,16 +42,6 @@ echo "dataset path: "$data_path
+ echo "image process mode: "$DVPP
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/crnn/README.md b/official/cv/crnn/README.md
+index 6f379a04e776b661af938604bd691cb9d067cc5e..ead6523a1c916225256cbb9ea14c1441a84bd82c 100644
+--- a/official/cv/crnn/README.md
++++ b/official/cv/crnn/README.md
+@@ -398,6 +398,8 @@ Data storage method is the same as training
+ 
+ ### Infer on Ascend310
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the mindir file must bu exported by export script on the 910 environment. We only provide an example of inference using MINDIR model.
+ Current batch_Size can only be set to 1. The inference result will be just the network outputs, which will be save in binary file. The accuracy is calculated by `src/metric.`.
+ 
+diff --git a/official/cv/crnn/scripts/run_infer_310.sh b/official/cv/crnn/scripts/run_infer_310.sh
+index 437fae5e5322b0e07dd988efe16f96bf640a1d75..16270a3cd34715f520bc8de4213ada36e0a31ad8 100644
+--- a/official/cv/crnn/scripts/run_infer_310.sh
++++ b/official/cv/crnn/scripts/run_infer_310.sh
+@@ -47,16 +47,6 @@ echo $data_path
+ echo $ann_file
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/crnn_seq2seq_ocr/README.md b/official/cv/crnn_seq2seq_ocr/README.md
+index b842fb7d662ac6537a8239e728da87e7de5ba6c3..b6ed646cc644e6518584911663f66cbc6635c6a4 100644
+--- a/official/cv/crnn_seq2seq_ocr/README.md
++++ b/official/cv/crnn_seq2seq_ocr/README.md
+@@ -286,6 +286,8 @@ The ckpt_file parameter is required,
+ 
+ ### Infer on Ascend310
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the mindir file must be exported by `export.py` script. We only provide an example of inference using MINDIR model.
+ 
+ ```shell
+diff --git a/official/cv/crnn_seq2seq_ocr/scripts/run_infer_310.sh b/official/cv/crnn_seq2seq_ocr/scripts/run_infer_310.sh
+index 6cdf28852589e3470f8ea479666658fdef87c26d..df53f73a7da26b221ec9b8a3468e58650fa2f679 100644
+--- a/official/cv/crnn_seq2seq_ocr/scripts/run_infer_310.sh
++++ b/official/cv/crnn_seq2seq_ocr/scripts/run_infer_310.sh
+@@ -47,16 +47,6 @@ echo "mindir name: "$model
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/cspdarknet53/README.md b/official/cv/cspdarknet53/README.md
+index 09ac96b0143f06e9a48af975c8a0aee61cd06703..021f73985304b7db6b3ee6467e5d463b9a362e71 100644
+--- a/official/cv/cspdarknet53/README.md
++++ b/official/cv/cspdarknet53/README.md
+@@ -49,7 +49,7 @@ Dataset used can refer to paper.
+ 
+ ## [Mixed Precision(Ascend)](#contents)
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ 
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+@@ -271,6 +271,8 @@ python export.py
+ 
+ ### [Inference](#content)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, we need to export model first. Air model can only be exported in Ascend 910 environment, mindir model can be exported in any environment.
+ 
+ ```shell
+diff --git a/official/cv/cspdarknet53/scripts/run_infer_310.sh b/official/cv/cspdarknet53/scripts/run_infer_310.sh
+index bc03305d0a3aef1a18a5b520f6c205342bca9b92..58695e968b332b219c471b78714fb298872e8bdf 100644
+--- a/official/cv/cspdarknet53/scripts/run_infer_310.sh
++++ b/official/cv/cspdarknet53/scripts/run_infer_310.sh
+@@ -44,16 +44,6 @@ echo $model
+ echo $data_path
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/ctpn/README.md b/official/cv/ctpn/README.md
+index 447cd8801da7b3184aa40eef4ad4ffd0c55d477a..bec18580370f9e188f157d91cb6d92af012c0fec 100644
+--- a/official/cv/ctpn/README.md
++++ b/official/cv/ctpn/README.md
+@@ -421,6 +421,8 @@ Data storage method is the same as training
+ 
+ ### Usage
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the air file must bu exported by export script on the Ascend910 environment.
+ 
+ ```shell
+diff --git a/official/cv/ctpn/scripts/run_infer_310.sh b/official/cv/ctpn/scripts/run_infer_310.sh
+index 3562f0c712b0fbb517dbcfb723a3a7b4e891abda..015b3f5a20783a99c6fdfb4854a2d88bbe1a3d4c 100755
+--- a/official/cv/ctpn/scripts/run_infer_310.sh
++++ b/official/cv/ctpn/scripts/run_infer_310.sh
+@@ -47,16 +47,6 @@ echo $data_path
+ echo $label_path
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/darknet53/README.md b/official/cv/darknet53/README.md
+index e0d01ababfd1732c2c1f0e2f7dc0d8fd452439f1..e700475acfb1a9520120e3bf6c1051d71a83e6bc 100644
+--- a/official/cv/darknet53/README.md
++++ b/official/cv/darknet53/README.md
+@@ -58,7 +58,7 @@ Dataset used: [ImageNet2012](http://www.image-net.org/)
+ 
+ ## Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data types, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data types, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+diff --git a/official/cv/deeplabv3/README.md b/official/cv/deeplabv3/README.md
+index 209e8347d6e4200227dcb7e5ffdf15b8586672f6..62b042e29afecde22d66ec1c448aa53fa402e350 100644
+--- a/official/cv/deeplabv3/README.md
++++ b/official/cv/deeplabv3/README.md
+@@ -85,7 +85,7 @@ You can also generate the list file automatically by run script: `python get_dat
+ 
+ ## Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data types, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data types, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+@@ -849,6 +849,8 @@ The ckpt_file parameter is required,
+ 
+ ### Usage
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the air file must bu exported by export script on the 910 environment.
+ Current batch_Size can only be set to 1. The precision calculation process needs about 70G+ memory space.
+ 
+diff --git a/official/cv/deeplabv3/README_CN.md b/official/cv/deeplabv3/README_CN.md
+index 48de10986b2e73bb2f4070e6553822da9a1f754e..ed923ac5ec9f3ea8a690fdf02668bf7d714c83f3 100644
+--- a/official/cv/deeplabv3/README_CN.md
++++ b/official/cv/deeplabv3/README_CN.md
+@@ -817,6 +817,8 @@ python export.py --ckpt_file [CKPT_PATH] --file_name [FILE_NAME] --file_format [
+ 
+ ### 用法
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ 目前仅可处理batch_Size为1。
+ 
+ ```shell
+diff --git a/official/cv/deeplabv3/scripts/run_infer_310.sh b/official/cv/deeplabv3/scripts/run_infer_310.sh
+index 6d9ef317a3000ad7eee9582830f1511414f3b2a9..d9082417bfaffa6ab2a2df937dfba3df907f5c7b 100644
+--- a/official/cv/deeplabv3/scripts/run_infer_310.sh
++++ b/official/cv/deeplabv3/scripts/run_infer_310.sh
+@@ -44,16 +44,6 @@ echo "data root path: "$data_root
+ echo "data list path: "$data_list_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/deeptext/README.md b/official/cv/deeptext/README.md
+index a0d6b3422bb30338e513dcf614dc47e2d7900fd8..0191fc5a4b7a59f30c74d440b222ad476733c86f 100644
+--- a/official/cv/deeptext/README.md
++++ b/official/cv/deeptext/README.md
+@@ -324,6 +324,8 @@ python export.py --ckpt_file [CKPT_PATH] --device_target [DEVICE_TARGET] --file_
+ 
+ ### Usage
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the air file must bu exported by export script on the Ascend910 environment.
+ 
+ ```shell
+diff --git a/official/cv/deeptext/scripts/run_infer_310.sh b/official/cv/deeptext/scripts/run_infer_310.sh
+index 9064ee99392266a82bd8d482c3c3ad92ddf0a3be..90b522385767a23e277943a8908ee67c472aa103 100644
+--- a/official/cv/deeptext/scripts/run_infer_310.sh
++++ b/official/cv/deeptext/scripts/run_infer_310.sh
+@@ -46,16 +46,6 @@ echo $data_path
+ echo $label_path
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/densenet/README.md b/official/cv/densenet/README.md
+index 3e1adc1034a2ba3d883a9ba64da3bb9d83daf1c3..c88c95aa996b2a415bba7404d8343d223f8f7f2e 100644
+--- a/official/cv/densenet/README.md
++++ b/official/cv/densenet/README.md
+@@ -79,7 +79,7 @@ The default configuration of the Dataset are as follows:
+ 
+ ## Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ 
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+@@ -488,6 +488,8 @@ Data storage method is the same as training
+ 
+ ### Inference
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, we need to export the model first. Air model can only be exported in Ascend 910 environment, mindir can be exported in any environment.
+ 
+ ```shell
+diff --git a/official/cv/densenet/README_CN.md b/official/cv/densenet/README_CN.md
+index d7ee23aee4c1c5afbade3eb90decc28c278dd1be..14f12f57b5c446050ad8d16dd765ab45fe2744e5 100644
+--- a/official/cv/densenet/README_CN.md
++++ b/official/cv/densenet/README_CN.md
+@@ -451,6 +451,8 @@ python export.py --net [NET_NAME] --ckpt_file [CKPT_PATH] --device_target [DEVIC
+ 
+ ### 推理
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ 在推理之前需要先导出模型，AIR模型只能在昇腾910环境上导出，MINDIR可以在任意环境上导出。
+ 
+ ```shell
+diff --git a/official/cv/densenet/scripts/run_infer_310.sh b/official/cv/densenet/scripts/run_infer_310.sh
+index ba9b05250e35f2311e10096f7716fd30593cb00f..4e10abe5350d93836404119a5ddd980e005b48b8 100644
+--- a/official/cv/densenet/scripts/run_infer_310.sh
++++ b/official/cv/densenet/scripts/run_infer_310.sh
+@@ -45,16 +45,6 @@ echo $data_path
+ echo $label_file
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/depthnet/README.md b/official/cv/depthnet/README.md
+index 5227a9cd2295c126e1084f47cf790c587fa1cb1b..50a72c32cc059fe9f7f3b84f44e8f734fcf9e714 100644
+--- a/official/cv/depthnet/README.md
++++ b/official/cv/depthnet/README.md
+@@ -249,6 +249,8 @@ python export.py --coarse_or_fine fine
+ 
+ ### 推理
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ - 在推理环境运行时评估NYU数据集
+ 
+   在还行推理之前我们需要先导出模型。Air模型只能在昇腾910环境上导出，mindir可以在任意环境上导出。
+@@ -321,4 +323,3 @@ train.py中设置了随机种子。
+ # ModelZoo主页
+ 
+  请浏览官网[主页](https://gitee.com/mindspore/models)。
+-
+diff --git a/official/cv/depthnet/scripts/run_infer_310.sh b/official/cv/depthnet/scripts/run_infer_310.sh
+index 7eae2a98570c8a3414f75a09b3db2d73acec1143..dfbf0c37aabcdcbdfd8181e7d371d44e23374428 100644
+--- a/official/cv/depthnet/scripts/run_infer_310.sh
++++ b/official/cv/depthnet/scripts/run_infer_310.sh
+@@ -45,16 +45,6 @@ echo $data_path
+ echo $label_file
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/dpn/README.md b/official/cv/dpn/README.md
+index 78950f5f5cb51eb02c2ee7106d94288918fbeab6..7b0e307a6e1ea5808e98f7662b87802c610ebe0b 100644
+--- a/official/cv/dpn/README.md
++++ b/official/cv/dpn/README.md
+@@ -67,7 +67,7 @@ All the models in this repository are trained and validated on ImageNet-1K. The
+ 
+ ## [Mixed Precision](#contents)
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware. For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware. For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+ 
+@@ -355,6 +355,8 @@ DPN evaluate success!
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ ```shell
+diff --git a/official/cv/dpn/scripts/run_infer_310.sh b/official/cv/dpn/scripts/run_infer_310.sh
+index 8d48ecb1d7380f0577e7afaf303cc057191d4cfa..6a2aa7d2c5c3fac7de13aefe6a993de6030f4fdc 100644
+--- a/official/cv/dpn/scripts/run_infer_310.sh
++++ b/official/cv/dpn/scripts/run_infer_310.sh
+@@ -41,16 +41,6 @@ echo "mindir name: "$model
+ echo "dataset path: "$dataset_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+    if [ -d preprocess_Result ]; then
+diff --git a/official/cv/east/README.md b/official/cv/east/README.md
+index 665ddcb428f5cf150ea328087b0c280391e7c387..d9ab818cf4f1ab12dae229b43562cb0b6fdb3da9 100644
+--- a/official/cv/east/README.md
++++ b/official/cv/east/README.md
+@@ -309,6 +309,8 @@ The ckpt_file parameter is required,
+ 
+ ### Infer on Ascend310
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ Before performing inference, the mindir file must be exported by `export.py` script. We only provide an example of inference using MINDIR model.
+ Current batch_Size can only be set to 1.
+ 
+diff --git a/official/cv/east/scripts/run_infer_310.sh b/official/cv/east/scripts/run_infer_310.sh
+index d2a12a3e921dc9de8ba3d7d9227726994f9c4b7c..cae9aa2605002d1213605d19b2f61bbf91a285c1 100644
+--- a/official/cv/east/scripts/run_infer_310.sh
++++ b/official/cv/east/scripts/run_infer_310.sh
+@@ -39,16 +39,6 @@ echo "mindir name: "$model
+ echo "dataset path: "$data_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer/ || exit
+diff --git a/official/cv/erfnet/README_CN.md b/official/cv/erfnet/README_CN.md
+index b7d89a7a4bc4a2d84615bdb6fb79c92553b2f99c..503bb6852d7b39949c25eda56c4fa60b886c50f7 100644
+--- a/official/cv/erfnet/README_CN.md
++++ b/official/cv/erfnet/README_CN.md
+@@ -218,6 +218,8 @@ iou_class tensor([0.9742, 0.8046, 0.9048, 0.4574, 0.5067, 0.6105, 0.6239, 0.7221
+ 
+ # 推理
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ## 使用ckpt文件推理
+ 
+ - Ascend处理器环境运行
+diff --git a/official/cv/erfnet/scripts/run_infer_310.sh b/official/cv/erfnet/scripts/run_infer_310.sh
+index b3b676b20bb51789ff26d4586e5d3ee3056c6b0e..aec73cdc79913e338ce2b1aa648585ac52cf505f 100644
+--- a/official/cv/erfnet/scripts/run_infer_310.sh
++++ b/official/cv/erfnet/scripts/run_infer_310.sh
+@@ -51,16 +51,6 @@ echo "result path: $3"
+ echo "laebl path:  $4"
+ echo "device id: $5"
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ cd ascend310_infer/src
+ bash build.sh
+ ./build/erfnet $1 $2 $3 $5
+diff --git a/official/cv/faster_rcnn/README.md b/official/cv/faster_rcnn/README.md
+index 0a02ecc7a0c43ac60beb4e348e7bc244362e186d..af0e4c8612c29a57fbf58e2a5c2c470f0e53b8f0 100644
+--- a/official/cv/faster_rcnn/README.md
++++ b/official/cv/faster_rcnn/README.md
+@@ -527,6 +527,8 @@ python export.py --config_path [CONFIG_PATH] --ckpt_file [CKPT_PATH] --device_ta
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Usage
+ 
+ Before performing inference, the model file must be exported by export script on the Ascend910 environment.
+diff --git a/official/cv/faster_rcnn/README_CN.md b/official/cv/faster_rcnn/README_CN.md
+index c647e0c4708a48ec2aa7d5e41031a2dbedd7120e..a4e125f4b8c4d02c25604a2d9de7cfd7c5fcc852 100644
+--- a/official/cv/faster_rcnn/README_CN.md
++++ b/official/cv/faster_rcnn/README_CN.md
+@@ -565,6 +565,8 @@ python export.py --config_path [CONFIG_PATH] --ckpt_file [CKPT_PATH] --device_ta
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 使用方法
+ 
+ 在推理之前需要在昇腾910环境上完成模型的导出。以下示例仅支持batch_size=1的mindir推理。
+diff --git a/official/cv/faster_rcnn/scripts/run_infer_310.sh b/official/cv/faster_rcnn/scripts/run_infer_310.sh
+index 03076322d286bf08939c3dfb19d4e0b2b95942d8..875927771f5449a3d0bc15a3d0d567dbedae40e0 100644
+--- a/official/cv/faster_rcnn/scripts/run_infer_310.sh
++++ b/official/cv/faster_rcnn/scripts/run_infer_310.sh
+@@ -70,16 +70,6 @@ echo "image_height: "$image_height
+ echo "keep_ratio: "$keep_ratio
+ echo "restore_bbox: "$restore_bbox
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/fastscnn/README_CN.md b/official/cv/fastscnn/README_CN.md
+index 940475065f2c9768e19177dfc8eca108b96ae5b5..8b210c4cadbeb4dedd0bc3c2572a03136258d9f6 100644
+--- a/official/cv/fastscnn/README_CN.md
++++ b/official/cv/fastscnn/README_CN.md
+@@ -317,6 +317,8 @@ cal_mIoU.py 中的主要参数如下:
+ 
+ #### 310 推理
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ - 在 Ascend 310 处理器环境运行
+ 
+ ```python
+diff --git a/official/cv/fastscnn/scripts/run_infer_310.sh b/official/cv/fastscnn/scripts/run_infer_310.sh
+index 056f06e2d8f503ccea24ca9e8b05dcc0e538519b..8a8251ac3a38f056b603f7369e5eb8c6390d5cc9 100644
+--- a/official/cv/fastscnn/scripts/run_infer_310.sh
++++ b/official/cv/fastscnn/scripts/run_infer_310.sh
+@@ -50,16 +50,6 @@ echo "image_height: "$image_height
+ echo "image_width: "$image_width 
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer/ || exit
+diff --git a/official/cv/googlenet/README.md b/official/cv/googlenet/README.md
+index 6b3bb1ae4ae84c578ae8e98524f7208ae56ad3a8..bf58d64a99f189441d8f08bf6ea9a4300142e008 100644
+--- a/official/cv/googlenet/README.md
++++ b/official/cv/googlenet/README.md
+@@ -71,7 +71,7 @@ Dataset used: [ImageNet2012](http://www.image-net.org/)
+ 
+ ## Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+@@ -498,6 +498,8 @@ python export.py --config_path [CONFIG_PATH]
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Inference](#content)
+ 
+ Before performing inference, we need to export model first. Air model can only be exported in Ascend 910 environment, mindir model can be exported in any environment.
+diff --git a/official/cv/googlenet/README_CN.md b/official/cv/googlenet/README_CN.md
+index 63873626a1064ccc636f1e14573a691055c63964..ebc522819eeb2628dc2b3a7f8abceb88cf154cb0 100644
+--- a/official/cv/googlenet/README_CN.md
++++ b/official/cv/googlenet/README_CN.md
+@@ -500,6 +500,8 @@ python export.py --config_path [CONFIG_PATH]
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 推理
+ 
+ 在还行推理之前我们需要先导出模型。Air模型只能在昇腾910环境上导出，mindir可以在任意环境上导出。batch_size只支持1。
+diff --git a/official/cv/googlenet/scripts/run_infer_310.sh b/official/cv/googlenet/scripts/run_infer_310.sh
+index 889454e78b9339ea00144227b2957ba9896205ae..8924d88c4051c25ada223170b323c7327f254a62 100644
+--- a/official/cv/googlenet/scripts/run_infer_310.sh
++++ b/official/cv/googlenet/scripts/run_infer_310.sh
+@@ -46,16 +46,6 @@ echo $data_path
+ echo $label_file
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/inceptionv3/README.md b/official/cv/inceptionv3/README.md
+index fceba4e3d986e0eb9829dbcf22ee2ddcd033682c..67c7c65a2bc2d3b59e085f7cc78bedfc822c96da 100644
+--- a/official/cv/inceptionv3/README.md
++++ b/official/cv/inceptionv3/README.md
+@@ -68,7 +68,7 @@ Dataset used: [CIFAR-10](http://www.cs.toronto.edu/~kriz/cifar.html)
+ 
+ ## [Mixed Precision(Ascend)](#contents)
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ 
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+@@ -421,6 +421,8 @@ python export.py --ckpt_file [CKPT_PATH] --device_target [DEVICE_TARGET] --file_
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Usage
+ 
+ Before performing inference, the model file must be exported by export script on the Ascend910 environment.
+diff --git a/official/cv/inceptionv3/README_CN.md b/official/cv/inceptionv3/README_CN.md
+index 7ea0b597cd0ab56036860d516942d2f0d15fc12c..cafc24b18c479cf8388ee907e3f451226583b4e1 100644
+--- a/official/cv/inceptionv3/README_CN.md
++++ b/official/cv/inceptionv3/README_CN.md
+@@ -421,6 +421,8 @@ python export.py --ckpt_file [CKPT_PATH] --device_target [DEVICE_TARGET] --file_
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 使用方法
+ 
+ 在推理之前需要在昇腾910环境上完成模型的导出。
+@@ -487,4 +489,3 @@ accuracy:78.742
+ # ModelZoo主页
+ 
+ 请浏览官网[主页](https://gitee.com/mindspore/models)。
+-
+diff --git a/official/cv/inceptionv3/scripts/run_infer_310.sh b/official/cv/inceptionv3/scripts/run_infer_310.sh
+index 575896f57ef22eb008e36c38681e31ed3bf9ca94..ef38710289f130bfd5cc484a352028d65b961c42 100644
+--- a/official/cv/inceptionv3/scripts/run_infer_310.sh
++++ b/official/cv/inceptionv3/scripts/run_infer_310.sh
+@@ -49,16 +49,6 @@ echo $data_path
+ echo $label_file
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/inceptionv4/README.md b/official/cv/inceptionv4/README.md
+index 14b7e257b1fea816a80df859037bd15b2a8a35d6..1bbda4570e1653a6c7161c7782201f71f076bbd4 100644
+--- a/official/cv/inceptionv4/README.md
++++ b/official/cv/inceptionv4/README.md
+@@ -46,7 +46,7 @@ Dataset used can refer to paper.
+ 
+ ## [Mixed Precision(Ascend)](#contents)
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ 
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+@@ -391,6 +391,8 @@ python export.py --config_path [CONFIG_FILE] --ckpt_file [CKPT_PATH] --device_ta
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Usage
+ 
+ Before performing inference, the model file must be exported by export script on the Ascend910 environment.
+diff --git a/official/cv/inceptionv4/scripts/run_infer_310.sh b/official/cv/inceptionv4/scripts/run_infer_310.sh
+index 0f53cff36cf867ea953f13be1cfa98a3c1c91127..0098cfb0c6e5a4de838a9042b88d9b6e0383cbf0 100644
+--- a/official/cv/inceptionv4/scripts/run_infer_310.sh
++++ b/official/cv/inceptionv4/scripts/run_infer_310.sh
+@@ -46,16 +46,6 @@ echo $device_id
+ BASE_PATH=$(cd ./"`dirname $0`" || exit; pwd)
+ CONFIG_FILE="${BASE_PATH}/../default_config.yaml"
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/lenet/README.md b/official/cv/lenet/README.md
+index f2c3bc382fc5a6c4b6e74788cdcc635ace88ae6d..a097d679a00aceb802b07096c7fb3006188a691b 100644
+--- a/official/cv/lenet/README.md
++++ b/official/cv/lenet/README.md
+@@ -256,6 +256,8 @@ You can view the results through the file "log.txt". The accuracy of the test da
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Export MindIR
+ 
+ ```shell
+diff --git a/official/cv/lenet/README_CN.md b/official/cv/lenet/README_CN.md
+index 44daab31219f55996f54c96c4b2f6bd52be07b2a..3c511210deb4b2620d0e83f5e5f0e96f9c2c1446 100644
+--- a/official/cv/lenet/README_CN.md
++++ b/official/cv/lenet/README_CN.md
+@@ -234,6 +234,8 @@ epoch:1 step:1538, loss is 1.0221305
+ 
+ ## 评估过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 评估
+ 
+ 在运行以下命令之前，请检查用于评估的检查点路径。
+diff --git a/official/cv/lenet/scripts/run_infer_310.sh b/official/cv/lenet/scripts/run_infer_310.sh
+index 70c6cc2d3609252af664ad1994f3a85eeff81604..aed1d56981e7a42d7f3112bb34686420a5adc3d2 100644
+--- a/official/cv/lenet/scripts/run_infer_310.sh
++++ b/official/cv/lenet/scripts/run_infer_310.sh
+@@ -42,16 +42,6 @@ echo "dataset path: "$data_path
+ echo "image process mode: "$DVPP
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/maskrcnn/README.md b/official/cv/maskrcnn/README.md
+index 3c4e91a2ae789ffe900720965033d7c9169e37e5..7b467565dc2253641fca7d491937941446803a52 100644
+--- a/official/cv/maskrcnn/README.md
++++ b/official/cv/maskrcnn/README.md
+@@ -705,6 +705,8 @@ python export.py --config_path [CONFIG_FILE] --ckpt_file [CKPT_PATH] --device_ta
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Usage
+ 
+ Before performing inference, the air file must bu exported by export script on the 910 environment.
+diff --git a/official/cv/maskrcnn/README_CN.md b/official/cv/maskrcnn/README_CN.md
+index 800281999ad32c73c3f7a942645a1a03f4b60879..587e006f0a9536852faf5461b46a43d538814253 100644
+--- a/official/cv/maskrcnn/README_CN.md
++++ b/official/cv/maskrcnn/README_CN.md
+@@ -593,6 +593,8 @@ epoch:12 step:7393 ,rpn_loss:0.06482, rcnn_loss:0.47681, rpn_cls_loss:0.04770, r
+ 
+ ## 评估过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 评估
+ 
+ - 运行`run_eval.sh`进行评估。
+diff --git a/official/cv/maskrcnn/scripts/run_infer_310.sh b/official/cv/maskrcnn/scripts/run_infer_310.sh
+index 294c35fb7a7fd577b154db1bbe7b8c21e799c588..b5ee777840c926e24b71a62fb297a1043711e677 100644
+--- a/official/cv/maskrcnn/scripts/run_infer_310.sh
++++ b/official/cv/maskrcnn/scripts/run_infer_310.sh
+@@ -41,16 +41,6 @@ echo "dataset path: "$data_path
+ echo "ann file: "$ann_file
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/maskrcnn_mobilenetv1/README.md b/official/cv/maskrcnn_mobilenetv1/README.md
+index ef05bfdfdc10c270416b1a0920320eca2a996516..c706ef597f5e23fc8de39a8780ef546734b38c10 100644
+--- a/official/cv/maskrcnn_mobilenetv1/README.md
++++ b/official/cv/maskrcnn_mobilenetv1/README.md
+@@ -647,6 +647,8 @@ python export.py --ckpt_file [CKPT_PATH] --device_target [DEVICE_TARGET] --file_
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Inference](#content)
+ 
+ Before performing inference, we need to export model first. Air model can only be exported in Ascend 910 environment, mindir model can be exported in any environment.
+diff --git a/official/cv/maskrcnn_mobilenetv1/scripts/run_infer_310.sh b/official/cv/maskrcnn_mobilenetv1/scripts/run_infer_310.sh
+index 65c874971f5ae65fd190478f10c05eb2d9d9fa02..65499c79f81a3c72e4d18f40e4a92078f036e623 100644
+--- a/official/cv/maskrcnn_mobilenetv1/scripts/run_infer_310.sh
++++ b/official/cv/maskrcnn_mobilenetv1/scripts/run_infer_310.sh
+@@ -41,16 +41,6 @@ echo "dataset path: "$data_path
+ echo "ann file: "$ann_file
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/mobilenetv1/README.md b/official/cv/mobilenetv1/README.md
+index 39b561f6413009f450553f3e9c18622d779467f1..14d9317d5fb2cec18ecb1975f64428a01334082b 100644
+--- a/official/cv/mobilenetv1/README.md
++++ b/official/cv/mobilenetv1/README.md
+@@ -73,7 +73,7 @@ Dataset used: [CIFAR-10](http://www.cs.toronto.edu/~kriz/cifar.html)
+ 
+ ### Mixed Precision(Ascend)
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ ## Environment Requirements
+@@ -339,6 +339,8 @@ result: {'top_5_accuracy': 0.9011217948717949, 'top_1_accuracy': 0.7129206730769
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ ```shell
+diff --git a/official/cv/mobilenetv1/scripts/run_infer_310.sh b/official/cv/mobilenetv1/scripts/run_infer_310.sh
+index 6db280c009f3515dc4ee314921d73f03fc782fb9..f61cd162e38b8a87f35d74dc7f597b2a843a331a 100644
+--- a/official/cv/mobilenetv1/scripts/run_infer_310.sh
++++ b/official/cv/mobilenetv1/scripts/run_infer_310.sh
+@@ -57,16 +57,6 @@ echo "mindir name: "$model
+ echo "dataset path: "$dataset_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+    if [ -d preprocess_Result ]; then
+diff --git a/official/cv/mobilenetv2/README.md b/official/cv/mobilenetv2/README.md
+index 6d4f3a4a2df39ab071df1a8f3862cbb12f00797d..8f7faca6916937a0c3d501d5a8b57764027c1a0b 100644
+--- a/official/cv/mobilenetv2/README.md
++++ b/official/cv/mobilenetv2/README.md
+@@ -59,7 +59,7 @@ Dataset used: [imagenet](http://www.image-net.org/)
+ 
+ ## [Mixed Precision(Ascend)](#contents)
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+@@ -405,6 +405,8 @@ CPU: bash run_train_nfs_cache.sh CPU [TRAIN_DATASET_PATH]
+ 
+ ## [Inference process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Export MindIR
+ 
+ ```shell
+diff --git a/official/cv/mobilenetv2/README_CN.md b/official/cv/mobilenetv2/README_CN.md
+index 6ab4e4c18e5d9f950564ee8b228fcfbaa4e8198e..12cdbebbcb2d65aa922ce9c6b11b0edbd6b2e9c9 100644
+--- a/official/cv/mobilenetv2/README_CN.md
++++ b/official/cv/mobilenetv2/README_CN.md
+@@ -370,6 +370,8 @@ CPU: bash run_train_nfs_cache.sh CPU [TRAIN_DATASET_PATH]
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 导出MindIR
+ 
+ ```shell
+diff --git a/official/cv/mobilenetv2/scripts/run_infer_310.sh b/official/cv/mobilenetv2/scripts/run_infer_310.sh
+index 23dc85c4e023519771173ba7830550f5ed4deead..97908195d97e2d3347979d0798ba54fcba2ca653 100644
+--- a/official/cv/mobilenetv2/scripts/run_infer_310.sh
++++ b/official/cv/mobilenetv2/scripts/run_infer_310.sh
+@@ -44,16 +44,6 @@ echo "label path: "$label_path
+ echo "image process mode: "$DVPP
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/mobilenetv3/README_CN.md b/official/cv/mobilenetv3/README_CN.md
+index 02b611e45cfb9974a99468e2ea58d38f48558faa..625db03adcc6e2d3057787b82cca0e08977c3ab3 100644
+--- a/official/cv/mobilenetv3/README_CN.md
++++ b/official/cv/mobilenetv3/README_CN.md
+@@ -155,6 +155,8 @@ result:{'acc':0.71976314102564111} ckpt=/path/to/checkpoint/mobilenet-200_625.ck
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 导出MindIR
+ 
+ ```shell
+diff --git a/official/cv/mobilenetv3/Readme.md b/official/cv/mobilenetv3/Readme.md
+index 036e61dfb5a670c8e113d23c60179f99641310bf..6becd557570cc2312ad536280542ced023293d41 100644
+--- a/official/cv/mobilenetv3/Readme.md
++++ b/official/cv/mobilenetv3/Readme.md
+@@ -151,6 +151,8 @@ result: {'acc': 0.71976314102564111} ckpt=/path/to/checkpoint/mobilenet-200_625.
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ ```shell
+diff --git a/official/cv/mobilenetv3/scripts/run_infer_310.sh b/official/cv/mobilenetv3/scripts/run_infer_310.sh
+index 7760a6d368228b803d80680668dd2d37571bfae5..4dd0ace34b3f66869d1c1011949957b41a4f0c93 100644
+--- a/official/cv/mobilenetv3/scripts/run_infer_310.sh
++++ b/official/cv/mobilenetv3/scripts/run_infer_310.sh
+@@ -41,16 +41,6 @@ echo $model
+ echo $data_path
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/nasnet/README.md b/official/cv/nasnet/README.md
+index 21a266c6103dd75d25242b6534c37b61366fba01..63a14c474484444ef98108e318132dea4980dc27 100644
+--- a/official/cv/nasnet/README.md
++++ b/official/cv/nasnet/README.md
+@@ -189,6 +189,8 @@ acc=73.5%(TOP1,GPU)
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ Export MindIR on local
+diff --git a/official/cv/nasnet/README_CN.md b/official/cv/nasnet/README_CN.md
+index 774e5a28611ed424c20e2e6c4074f6b3809247b1..55ceb2daffe57e02b5fa8df6be39962113f4a5fb 100644
+--- a/official/cv/nasnet/README_CN.md
++++ b/official/cv/nasnet/README_CN.md
+@@ -198,6 +198,8 @@ acc=73.5%(TOP1,GPU)
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### [导出MindIR](#contents)
+ 
+ 导出mindir模型
+diff --git a/official/cv/nasnet/scripts/run_infer_310.sh b/official/cv/nasnet/scripts/run_infer_310.sh
+index 1e2be1bf18256670ddaeccd52906b1ebbe4f45f1..c99d01e8c37ec46346a910b5dc633ecd1bb8fd3d 100644
+--- a/official/cv/nasnet/scripts/run_infer_310.sh
++++ b/official/cv/nasnet/scripts/run_infer_310.sh
+@@ -56,16 +56,6 @@ echo "dataset path: "$dataset_path
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/nima/README.md b/official/cv/nima/README.md
+index 8ccd8d89deeb813b5b2141e00f356df773aab575..c8ead246515deafb32a2de10b267af4a50c04d5b 100644
+--- a/official/cv/nima/README.md
++++ b/official/cv/nima/README.md
+@@ -260,6 +260,8 @@ SRCC: 0.657146300995645
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### [导出MindIR](#contents)
+ 
+ 数据准备
+diff --git a/official/cv/nima/scripts/run_infer_310.sh b/official/cv/nima/scripts/run_infer_310.sh
+index c111fb5a86d8abbbe542603ae15b9f347e72b60f..b81034d1f6751733b31fd7a6a5a38e53e22d4737 100644
+--- a/official/cv/nima/scripts/run_infer_310.sh
++++ b/official/cv/nima/scripts/run_infer_310.sh
+@@ -57,16 +57,6 @@ echo $model
+ echo $data_path
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ./ascend310_infer || exit
+diff --git a/official/cv/openpose/README.md b/official/cv/openpose/README.md
+index 08e5b835cafe2d5576badcb24a85c25c900367a4..dd9182648b6976b0745a882c3beb4435f10483ca 100644
+--- a/official/cv/openpose/README.md
++++ b/official/cv/openpose/README.md
+@@ -69,7 +69,7 @@ In the currently provided training script, the coco2017 data set is used as an e
+ 
+ ## Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+diff --git a/official/cv/patchcore/README.md b/official/cv/patchcore/README.md
+index 985ee7aaf57138e0e3f4c39addca69ea767cf259..17c26e4f7d183e99ee83a0f5608f0c3cc7684f12 100644
+--- a/official/cv/patchcore/README.md
++++ b/official/cv/patchcore/README.md
+@@ -313,6 +313,8 @@ python export.py --device_id 0 --ckpt_file ../pretrain/PatchCore_pretrain.ckpt
+ 
+ ## Inference process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Inference
+ 
+ Before running inference we need to export the model. Air models can only be exported on the Ascend 910 environment, mindir can be exported on any environment.
+diff --git a/official/cv/patchcore/README_CN.md b/official/cv/patchcore/README_CN.md
+index f607be1576259669e38448c5d619c313348c64ea..7e92325cf3e237d8161c82017c886bcc23b36066 100644
+--- a/official/cv/patchcore/README_CN.md
++++ b/official/cv/patchcore/README_CN.md
+@@ -227,6 +227,8 @@ python export.py --device_id 0 --ckpt_file ../pretrain/PatchCore_pretrain.ckpt
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 推理
+ 
+ 在运行推理之前我们需要先导出模型。Air模型只能在昇腾910环境上导出，mindir可以在任意环境上导出。
+diff --git a/official/cv/patchcore/scripts/run_310_infer.sh b/official/cv/patchcore/scripts/run_310_infer.sh
+index 44a4200787899b6e89345ceaf51c60073016f2f4..ee0240cff6b7f675b81229b5ce0bf82a54bf2740 100644
+--- a/official/cv/patchcore/scripts/run_310_infer.sh
++++ b/official/cv/patchcore/scripts/run_310_infer.sh
+@@ -48,16 +48,6 @@ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ echo "category: "$category
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ 
+ function preprocess_data() {
+     if [ ! -d img ]; then
+diff --git a/official/cv/posenet/README_CN.md b/official/cv/posenet/README_CN.md
+index 5e65680a6292b24c27c0b426fd6f50480b78400a..4cda85c0e0c2e72fc1076490ec8e0eb91d92ff00 100644
+--- a/official/cv/posenet/README_CN.md
++++ b/official/cv/posenet/README_CN.md
+@@ -295,6 +295,8 @@ CKPT_URL和DATASET为必填项, FILE_FORMAT默认为MINDIR，可配值MINDIR或A
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 前处理
+ 
+ 在执行推理前，需要进行数据集预处理，将image和label转换为bin文件。
+diff --git a/official/cv/posenet/scripts/run_infer_310.sh b/official/cv/posenet/scripts/run_infer_310.sh
+index 33062510b1b30a6b9918cc664a0eb38dbc1c75b6..73172dc16c44a0678be5d83bac585d1416169555 100644
+--- a/official/cv/posenet/scripts/run_infer_310.sh
++++ b/official/cv/posenet/scripts/run_infer_310.sh
+@@ -40,16 +40,6 @@ echo "input0 path: "$input0_path
+ echo "label path: "$label_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/predrnn++/README.md b/official/cv/predrnn++/README.md
+index 70402f81bc5a1e2f272766b599e59ae4799de239..c78bba18774684e81b8fe2e7d79950b96f85069a 100644
+--- a/official/cv/predrnn++/README.md
++++ b/official/cv/predrnn++/README.md
+@@ -225,6 +225,8 @@ mse per frame: 47.858854093653633
+ 
+ ## [Infer Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Infer](#contents)
+ 
+ Before we can run inference we need to export the model first. Air models can only be exported on the Ascend 910 environment, mindir can be exported on any environment. batch_size only supports 1.
+diff --git a/official/cv/predrnn++/scripts/run_infer_310.sh b/official/cv/predrnn++/scripts/run_infer_310.sh
+index a92cc66e6b938801e499d4fad00941d734b4411f..ef155ed2c97a852d4b03a1172bb80e378c5be0aa 100644
+--- a/official/cv/predrnn++/scripts/run_infer_310.sh
++++ b/official/cv/predrnn++/scripts/run_infer_310.sh
+@@ -46,16 +46,6 @@ echo "dataset path: "$dataset_path
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/psenet/README.md b/official/cv/psenet/README.md
+index 4c816898ac5e4e4c185224c02fa8ade0f958cbf5..6a5ae7e32828652233d7cee22b65d2ec5c73807d 100644
+--- a/official/cv/psenet/README.md
++++ b/official/cv/psenet/README.md
+@@ -324,6 +324,8 @@ Calculated!{"precision": 0.814796668299853, "recall": 0.8006740491092923, "hmean
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ ```shell
+diff --git a/official/cv/psenet/README_CN.md b/official/cv/psenet/README_CN.md
+index 192cabd8999d0ea64e53003cd97f7a70877e3b19..afe17f123fbecde909aaba773d67bec6b7d135b3 100644
+--- a/official/cv/psenet/README_CN.md
++++ b/official/cv/psenet/README_CN.md
+@@ -279,6 +279,8 @@ Calculated!{"precision": 0.8147966668299853，"recall"：0.8006740491092923，"h
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### [导出MindIR](#contents)
+ 
+ ```shell
+diff --git a/official/cv/psenet/scripts/run_infer_310.sh b/official/cv/psenet/scripts/run_infer_310.sh
+index 2c1aa76575bbac31bcb599cb9e84c575947a0729..c914bfb093b658c9eaed33e71962deb99376a17f 100644
+--- a/official/cv/psenet/scripts/run_infer_310.sh
++++ b/official/cv/psenet/scripts/run_infer_310.sh
+@@ -39,16 +39,6 @@ echo "mindir name: "$model
+ echo "dataset path: "$data_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer/ || exit
+diff --git a/official/cv/pvnet/README.md b/official/cv/pvnet/README.md
+index 629106e97b6129453e9e6b13fb6adf17e0bc3dcc..cc4937e87f403ecd409c433091f977f268953f6a 100644
+--- a/official/cv/pvnet/README.md
++++ b/official/cv/pvnet/README.md
+@@ -313,6 +313,8 @@ python export.py
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 推理
+ 
+ 在进行推理之前我们需要先导出模型。Air模型只能在昇腾910环境上导出，mindir可以在任意环境上导出。batch_size只支持1。
+diff --git a/official/cv/pvnet/scripts/run_infer_310.sh b/official/cv/pvnet/scripts/run_infer_310.sh
+index 0a09c5e3fc3fa445d2c3cf006247a7a91e91b270..1dc78e7c887185416bb64aaedb48ab1780471858 100644
+--- a/official/cv/pvnet/scripts/run_infer_310.sh
++++ b/official/cv/pvnet/scripts/run_infer_310.sh
+@@ -59,16 +59,6 @@ echo data_path: $data_path
+ echo cls_name: $cls_name
+ echo device_id: $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     pushd ascend310_infer
+diff --git a/official/cv/resnet/README.md b/official/cv/resnet/README.md
+index f197138a6b3e1e803a267148c889944172d58b42..0ff8bbe8f05682f1958217cf9f27f0a015424beb 100644
+--- a/official/cv/resnet/README.md
++++ b/official/cv/resnet/README.md
+@@ -113,7 +113,7 @@ Dataset used: [ImageNet2012](http://www.image-net.org/)
+ 
+ ## Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data types, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data types, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+@@ -707,6 +707,8 @@ result: {'top_5_accuracy': 0.9342589628681178, 'top_1_accuracy': 0.7680657810499
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ Export MindIR on local
+diff --git a/official/cv/resnet/README_CN.md b/official/cv/resnet/README_CN.md
+index 163be711c920d5c71fed40c82887d7f2b1e0578c..b67672c2aebeba2f7a6587898c5d28109cecbd8c 100644
+--- a/official/cv/resnet/README_CN.md
++++ b/official/cv/resnet/README_CN.md
+@@ -717,6 +717,8 @@ result:{'top_5_accuracy':0.9342589628681178, 'top_1_accuracy':0.768065781049936}
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### [导出MindIR](#contents)
+ 
+ 导出mindir模型
+diff --git a/official/cv/resnet/scripts/run_infer_310.sh b/official/cv/resnet/scripts/run_infer_310.sh
+index eeb77606e4b8a03e36249aa28baf8ebf7a437c26..959d300b98b8eaca1eb54435941d465c201c16da 100644
+--- a/official/cv/resnet/scripts/run_infer_310.sh
++++ b/official/cv/resnet/scripts/run_infer_310.sh
+@@ -58,16 +58,6 @@ echo "network: "$network
+ echo "dataset: "$dataset
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer/src/ || exit
+diff --git a/official/cv/resnext/README.md b/official/cv/resnext/README.md
+index 66ecb20c87dcc3b31ad04305c0fe85af53e5c419..d0b99b0ef29172744bc6fd91e1a89e38e680a37a 100644
+--- a/official/cv/resnext/README.md
++++ b/official/cv/resnext/README.md
+@@ -54,7 +54,7 @@ Dataset used: [imagenet](http://www.image-net.org/)
+ 
+ ## [Mixed Precision](#contents)
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ 
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+@@ -287,6 +287,8 @@ Export on ModelArts (If you want to run in modelarts, please check the official
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Usage
+ 
+ Before performing inference, the mindir file must be exported by export.py. Currently, only batchsize 1 is supported.
+diff --git a/official/cv/resnext/README_CN.md b/official/cv/resnext/README_CN.md
+index ce817653d4cf12d1b915dd4c9966a79a5183856b..5d4dcd73cff83c477c9d33f7cfe6bf06a99a054c 100644
+--- a/official/cv/resnext/README_CN.md
++++ b/official/cv/resnext/README_CN.md
+@@ -313,6 +313,8 @@ ModelArts导出mindir
+ 
+ ## [推理过程](#contents)
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 用法
+ 
+ 在执行推理之前，需要通过export.py导出mindir文件。
+diff --git a/official/cv/resnext/scripts/run_infer_310.sh b/official/cv/resnext/scripts/run_infer_310.sh
+index e844b396749c61dfd0d8c58bb13142065d3ce9e4..749ae70f3910b7f1c20d6180e4cdd7cdb61e27ca 100644
+--- a/official/cv/resnext/scripts/run_infer_310.sh
++++ b/official/cv/resnext/scripts/run_infer_310.sh
+@@ -39,16 +39,6 @@ echo "mindir name: "$model
+ echo "dataset path: "$data_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer/src/ || exit
+diff --git a/official/cv/retinanet/README_CN.md b/official/cv/retinanet/README_CN.md
+index d6f85f827a32747f56cb9daf2c749f6f7d6abdb8..16f7b03d9f19b7062ebc80d4a6a7908a5b5e9390 100644
+--- a/official/cv/retinanet/README_CN.md
++++ b/official/cv/retinanet/README_CN.md
+@@ -431,6 +431,8 @@ python export.py  --file_name retinanet --file_format MINDIR --checkpoint_path /
+ 
+ ### [推理过程](#content)
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ #### <span id="usage">用法</span>
+ 
+ 在推理之前需要在昇腾910环境上完成模型的导出。推理时要将iscrowd为true的图片排除掉。在ascend310_infer目录下保存了去排除后的图片id。
+diff --git a/official/cv/retinanet/scripts/run_infer_310.sh b/official/cv/retinanet/scripts/run_infer_310.sh
+index 51209bac3b6a396ef6772fe2239b8b361107f344..3c0765a1af565d631ba999241548ae19dd95543b 100644
+--- a/official/cv/retinanet/scripts/run_infer_310.sh
++++ b/official/cv/retinanet/scripts/run_infer_310.sh
+@@ -41,16 +41,6 @@ echo $model
+ echo $data_path
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/se_resnext50/README.md b/official/cv/se_resnext50/README.md
+index 211b6f29e635ad23a5d01548239f535176dc8e6f..db87ec5dac41062b3e5c1b8e64f4623e68474066 100644
+--- a/official/cv/se_resnext50/README.md
++++ b/official/cv/se_resnext50/README.md
+@@ -272,6 +272,8 @@ Export on ModelArts (If you want to run in modelarts, please check the official
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Usage
+ 
+ Before performing inference, the mindir file must be exported by export.py. Currently, only batchsize 1 is supported.
+diff --git a/official/cv/se_resnext50/README_CN.md b/official/cv/se_resnext50/README_CN.md
+index 2308429405212925c5c39733ac3c71d48b2e8d2c..95ca6392c70671545c5b75f66e2fb81734db945f 100644
+--- a/official/cv/se_resnext50/README_CN.md
++++ b/official/cv/se_resnext50/README_CN.md
+@@ -279,6 +279,8 @@ ModelArts导出mindir
+ 
+ ## [推理过程](#contents)
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 用法
+ 
+ 在执行推理之前，需要通过export.py导出mindir文件。
+diff --git a/official/cv/se_resnext50/scripts/run_infer_310.sh b/official/cv/se_resnext50/scripts/run_infer_310.sh
+index e844b396749c61dfd0d8c58bb13142065d3ce9e4..749ae70f3910b7f1c20d6180e4cdd7cdb61e27ca 100644
+--- a/official/cv/se_resnext50/scripts/run_infer_310.sh
++++ b/official/cv/se_resnext50/scripts/run_infer_310.sh
+@@ -39,16 +39,6 @@ echo "mindir name: "$model
+ echo "dataset path: "$data_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer/src/ || exit
+diff --git a/official/cv/semantic_human_matting/README.md b/official/cv/semantic_human_matting/README.md
+index aeaf51c1ae947ecef57ad599a3fe56871aa8a8c0..82ee2c71e8ae1d03a0eea6d51c4c3301f4b567d6 100644
+--- a/official/cv/semantic_human_matting/README.md
++++ b/official/cv/semantic_human_matting/README.md
+@@ -621,6 +621,8 @@ ave_sad: 5.4309
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 推理
+ 
+ 1. 配置`config.yaml`
+diff --git a/official/cv/semantic_human_matting/scripts/run_infer_310.sh b/official/cv/semantic_human_matting/scripts/run_infer_310.sh
+index a1635190ccffea26d1889281838aec1b34f80b87..096ad935bd3785778d280afe6057a19559e8865b 100644
+--- a/official/cv/semantic_human_matting/scripts/run_infer_310.sh
++++ b/official/cv/semantic_human_matting/scripts/run_infer_310.sh
+@@ -33,16 +33,6 @@ echo $model
+ device_id=0
+ dataset="shm"
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/shufflenetv1/README_CN.md b/official/cv/shufflenetv1/README_CN.md
+index b02fc143a8066f714169d569db7e200b71db87cb..2be02b81dc4354db21c2636abd55268965683a84 100644
+--- a/official/cv/shufflenetv1/README_CN.md
++++ b/official/cv/shufflenetv1/README_CN.md
+@@ -300,6 +300,8 @@ Data storage method is the same as training
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 推理
+ 
+ 在推理之前需要先导出模型，AIR模型只能在昇腾910环境上导出，MINDIR可以在任意环境上导出。
+diff --git a/official/cv/shufflenetv1/scripts/run_infer_310.sh b/official/cv/shufflenetv1/scripts/run_infer_310.sh
+index 8906ab4a72b53999911ac0f77dc160578499be31..5765ebe29609ee9d183db255dc0dee50223c5fc5 100644
+--- a/official/cv/shufflenetv1/scripts/run_infer_310.sh
++++ b/official/cv/shufflenetv1/scripts/run_infer_310.sh
+@@ -46,16 +46,6 @@ echo $data_path
+ echo $label_file
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/shufflenetv2/README.md b/official/cv/shufflenetv2/README.md
+index 91c82be22e17f6e3de657ffc6d49909d836ef393..a89ae22c0246c73b9d42fb6a0a21bf2d3cb41cd7 100644
+--- a/official/cv/shufflenetv2/README.md
++++ b/official/cv/shufflenetv2/README.md
+@@ -139,6 +139,8 @@ Inference result will be stored in the example path, you can find result in `eva
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ Export MindIR on local
+diff --git a/official/cv/shufflenetv2/scripts/run_infer_310.sh b/official/cv/shufflenetv2/scripts/run_infer_310.sh
+index 1e2be1bf18256670ddaeccd52906b1ebbe4f45f1..c99d01e8c37ec46346a910b5dc633ecd1bb8fd3d 100644
+--- a/official/cv/shufflenetv2/scripts/run_infer_310.sh
++++ b/official/cv/shufflenetv2/scripts/run_infer_310.sh
+@@ -56,16 +56,6 @@ echo "dataset path: "$dataset_path
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/simclr/README.md b/official/cv/simclr/README.md
+index 5daadc1e1cd4ba51bc5c0567c853c10d3be6ec0b..99c67738a84e0da6aab4d5db89d2346e4f536888 100644
+--- a/official/cv/simclr/README.md
++++ b/official/cv/simclr/README.md
+@@ -226,6 +226,8 @@ The parameters ckpt_simclr_encoder and ckpt_linear_classifier are required,
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Usage
+ 
+ Before performing inference, the mindir file must be exported by export.py. Input files must be in bin format.
+diff --git a/official/cv/simclr/scripts/run_infer_310.sh b/official/cv/simclr/scripts/run_infer_310.sh
+index ceee73c243b59694f258dfb0a48ab6267d1d6157..bd225ed69d1ae56482f364a0c6e43cfe9ff2dfb0 100644
+--- a/official/cv/simclr/scripts/run_infer_310.sh
++++ b/official/cv/simclr/scripts/run_infer_310.sh
+@@ -50,16 +50,6 @@ echo "dataset path: "$data_path
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/simple_pose/README.md b/official/cv/simple_pose/README.md
+index 8f8ebd9f0adbfaf58db99e28b0a0c5e4a5faa752..88ade22e0dd899ea9f8786a9d17c14551bf3a6a6 100644
+--- a/official/cv/simple_pose/README.md
++++ b/official/cv/simple_pose/README.md
+@@ -57,7 +57,7 @@ Dataset used: COCO2017
+ 
+ ## [Mixed Precision](#contents)
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware. For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware. For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+ 
+@@ -549,6 +549,8 @@ AP: 0.7043184629348278
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ - Export on local
+diff --git a/official/cv/simple_pose/scripts/run_infer_310.sh b/official/cv/simple_pose/scripts/run_infer_310.sh
+index 4f0d13d7b0e65b06692ccc2aeb9ca320743dd649..ea632a601b97bde60471464cda89b450a229a675 100644
+--- a/official/cv/simple_pose/scripts/run_infer_310.sh
++++ b/official/cv/simple_pose/scripts/run_infer_310.sh
+@@ -46,16 +46,6 @@ echo "mindir name: "$model
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/sphereface/README.md b/official/cv/sphereface/README.md
+index 7aca951e78be82e2bd079aa527b64ff8116d1b85..be918841d828e8a4a5a12ff539416914021efcdd 100644
+--- a/official/cv/sphereface/README.md
++++ b/official/cv/sphereface/README.md
+@@ -406,6 +406,8 @@ python export.py --file_format [EXPORT_FORMAT]
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Inference
+ 
+ Before performing inference, we need to export the model first. Air model can only be exported in Ascend 910 environment, mindir can be exported in any environment.
+diff --git a/official/cv/sphereface/README_CN.md b/official/cv/sphereface/README_CN.md
+index 3688e4cba055049cf8134fd1e493b3cac2b9b276..4b45c743e047044b837f56c8449137b8ea72b6f2 100644
+--- a/official/cv/sphereface/README_CN.md
++++ b/official/cv/sphereface/README_CN.md
+@@ -407,6 +407,8 @@ python export.py --file_format [EXPORT_FORMAT]
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 推理
+ 
+ 在推理之前需要先导出模型，AIR模型只能在昇腾910环境上导出，MINDIR可以在任意环境上导出。
+diff --git a/official/cv/sphereface/scripts/run_infer_310.sh b/official/cv/sphereface/scripts/run_infer_310.sh
+index 0b70d095e64443656d780e83c01814436e944738..88b41e20649e7161672fdf1e58a256eb81ed96a5 100644
+--- a/official/cv/sphereface/scripts/run_infer_310.sh
++++ b/official/cv/sphereface/scripts/run_infer_310.sh
+@@ -59,16 +59,6 @@ echo "dataset path: "$dataset_path
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_result ]; then
+diff --git a/official/cv/squeezenet/README.md b/official/cv/squeezenet/README.md
+index 675c6742b5682100c70f5e3b6426e92ba38e7293..eeef2f2a2c5d4522fca024608cc3af18fa8d4c3c 100644
+--- a/official/cv/squeezenet/README.md
++++ b/official/cv/squeezenet/README.md
+@@ -67,7 +67,7 @@ Dataset used: [ImageNet2012](http://www.image-net.org/)
+ 
+ ## Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+@@ -441,6 +441,8 @@ result: {'top_1_accuracy': 0.6094950384122919, 'top_5_accuracy': 0.8263244238156
+ 
+ ## [Inference process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Export MindIR
+ 
+ Export MindIR on local
+diff --git a/official/cv/squeezenet/scripts/run_infer_310.sh b/official/cv/squeezenet/scripts/run_infer_310.sh
+index 79d7868be224f0f134aba61db4ec238070cdd0f7..df80f74c243765d38abb914f6f2f9842990f2946 100644
+--- a/official/cv/squeezenet/scripts/run_infer_310.sh
++++ b/official/cv/squeezenet/scripts/run_infer_310.sh
+@@ -64,16 +64,6 @@ echo "dataset path: "$data_path
+ echo "label file path: "$label_file
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/srcnn/README_CN.md b/official/cv/srcnn/README_CN.md
+index 6eb664d77c513d6c9432cb6810fbcc9ab9c4f0d7..be39545f5fd3bb95a550a52fe6f1d48179eeecf1 100644
+--- a/official/cv/srcnn/README_CN.md
++++ b/official/cv/srcnn/README_CN.md
+@@ -420,6 +420,8 @@ file_format 可在["AIR","MINDIR"]中选择。
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 推理
+ 
+ 在还行推理之前我们需要先导出模型。Air模型只能在昇腾910环境上导出，mindir可以在任意环境上导出。batch_size只支持1。
+diff --git a/official/cv/srcnn/scripts/run_infer_310.sh b/official/cv/srcnn/scripts/run_infer_310.sh
+index 112b0f105f613b8e42a8592c3d37549f17231ea8..f14a474051d725148856554432bbb6fe6f8b6471 100644
+--- a/official/cv/srcnn/scripts/run_infer_310.sh
++++ b/official/cv/srcnn/scripts/run_infer_310.sh
+@@ -44,16 +44,6 @@ echo "dataset path: "$dataset_path
+ echo "outputs path: "$outputs_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     echo "Start to preprocess..."
+diff --git a/official/cv/ssd/README.md b/official/cv/ssd/README.md
+index d7f37059dc8f44b8d7cee30b04507720eb6cbfea..a55a14ad30a30b5a94010d2358aac44b1738a147 100644
+--- a/official/cv/ssd/README.md
++++ b/official/cv/ssd/README.md
+@@ -512,6 +512,8 @@ We need three parameters for this scripts.
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export Model](#contents)
+ 
+ Export Model on local
+diff --git a/official/cv/ssd/README_CN.md b/official/cv/ssd/README_CN.md
+index 0474fdc79c82e34327c19f52da01ecd110eafc64..4cfb29a33c85f31347436eb2ce62517e2b44fed3 100644
+--- a/official/cv/ssd/README_CN.md
++++ b/official/cv/ssd/README_CN.md
+@@ -426,6 +426,8 @@ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.239
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### [导出模型](#contents)
+ 
+ 本地导出模型
+diff --git a/official/cv/ssd/scripts/run_infer_310.sh b/official/cv/ssd/scripts/run_infer_310.sh
+index fff5ec988e3d518fc6be921fc092f76864f781d4..d172b5731cef9405a9165e4f345e6f95eccab0cc 100644
+--- a/official/cv/ssd/scripts/run_infer_310.sh
++++ b/official/cv/ssd/scripts/run_infer_310.sh
+@@ -42,16 +42,6 @@ echo "dataset path: "$data_path
+ echo "config path: " $cfg_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/ssim-ae/README_CN.md b/official/cv/ssim-ae/README_CN.md
+index 47ad15832db537eb0492d251450f26c70d30ae32..af628bbd4b38bb3abb774f7a59d6fbb0b4927889 100644
+--- a/official/cv/ssim-ae/README_CN.md
++++ b/official/cv/ssim-ae/README_CN.md
+@@ -240,6 +240,8 @@ MVTec AD数据集
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### Ascend910处理器环境推理
+ 
+ - 在Ascend910环境运行时评估
+diff --git a/official/cv/ssim-ae/scripts/run_infer_310.sh b/official/cv/ssim-ae/scripts/run_infer_310.sh
+index 7388ff47b3b771211e8a0b6a49da43ff42f6bcbc..fadb707567c4d1fbb08aacb4901956b7268f303b 100644
+--- a/official/cv/ssim-ae/scripts/run_infer_310.sh
++++ b/official/cv/ssim-ae/scripts/run_infer_310.sh
+@@ -47,16 +47,6 @@ echo "device id: "$device_id
+ echo "ssim threshold: "$ssim_threshold
+ echo "l1 threshold: "$l1_threshold
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     cd $BASE_PATH/.. || exit
+diff --git a/official/cv/tinydarknet/README.md b/official/cv/tinydarknet/README.md
+index 1f33581c515f301821f8c1d9f0bbf4b86cdede7c..bb1af4b5f5e470bc84406e228cd28d5c9c91e93a 100644
+--- a/official/cv/tinydarknet/README.md
++++ b/official/cv/tinydarknet/README.md
+@@ -429,6 +429,8 @@ For more configuration details, please refer the script `imagenet_config.yaml`.
+ 
+ ## [Inference process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Export MindIR
+ 
+ - Export on local
+diff --git a/official/cv/tinydarknet/README_CN.md b/official/cv/tinydarknet/README_CN.md
+index 5a1cc70724bace52094d2d5bc0fe674a467cd0e0..8f7a531cb4a96fa3793d832b7ca06afcabe8382b 100644
+--- a/official/cv/tinydarknet/README_CN.md
++++ b/official/cv/tinydarknet/README_CN.md
+@@ -436,6 +436,8 @@ Tiny-DarkNet是Joseph Chet Redmon等人提出的一个16层的针对于经典的
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 导出MindIR
+ 
+ - 在本地导出
+diff --git a/official/cv/tinydarknet/scripts/run_infer_310.sh b/official/cv/tinydarknet/scripts/run_infer_310.sh
+index 0d7eedd97d0718371d425a1fecf2ccd3169976d6..d8c94da89650eeabfb0d43d8663fa17635cfcca4 100644
+--- a/official/cv/tinydarknet/scripts/run_infer_310.sh
++++ b/official/cv/tinydarknet/scripts/run_infer_310.sh
+@@ -44,16 +44,6 @@ echo "label file: "$label_file
+ echo "image process mode: "$DVPP
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/unet/README.md b/official/cv/unet/README.md
+index 16ad1ea87e6e2d195a666e1f88c095efde20c027..f0e4659f656ac8d482f4dd9735483cd1d2b507b3 100644
+--- a/official/cv/unet/README.md
++++ b/official/cv/unet/README.md
+@@ -502,6 +502,8 @@ The above python command will run in the background. You can view the results th
+ 
+ ### Inference
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ If you need to use the trained model to perform inference on multiple hardware platforms, such as Ascend 910 or Ascend 310, you
+ can refer to this [Link](https://www.mindspore.cn/tutorials/experts/en/master/infer/inference.html). Following
+ the steps below, this is a simple example:
+diff --git a/official/cv/unet/README_CN.md b/official/cv/unet/README_CN.md
+index 39e0e6c16d8fd94332ca87293269eb94aa532af2..51cdcb3db8530b7961fae58c3bdddf9b58065eeb 100644
+--- a/official/cv/unet/README_CN.md
++++ b/official/cv/unet/README_CN.md
+@@ -502,6 +502,8 @@ bash scripts/run_distribute_train_gpu.sh [RANKSIZE] [DATASET] [CONFIG_PATH]
+ 
+ #### 推理
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ 如果您需要使用训练好的模型在Ascend 910、Ascend 310等多个硬件平台上进行推理上进行推理，可参考此[链接](https://www.mindspore.cn/tutorials/experts/zh-CN/master/infer/inference.html)。下面是一个简单的操作步骤示例：
+ 
+ ##### Ascend 310环境运行
+diff --git a/official/cv/unet/scripts/run_infer_310.sh b/official/cv/unet/scripts/run_infer_310.sh
+index 5a0c47d2be02576628a5c394b33cd591866a3b99..2b5da66984d7b8685948f4e0bf40684ab87a3d00 100644
+--- a/official/cv/unet/scripts/run_infer_310.sh
++++ b/official/cv/unet/scripts/run_infer_310.sh
+@@ -48,16 +48,6 @@ echo "mindir name: "$model
+ echo "need preprocess or not: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/unet3d/README.md b/official/cv/unet3d/README.md
+index e5025b7614cccc6ce744aabb39adfecdacc4e907..2270ab072436765debb2ecd4d6737f5b945986f9 100644
+--- a/official/cv/unet3d/README.md
++++ b/official/cv/unet3d/README.md
+@@ -377,6 +377,8 @@ eval average dice is 0.9502010010453671
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ ```shell
+diff --git a/official/cv/unet3d/scripts/run_infer_310.sh b/official/cv/unet3d/scripts/run_infer_310.sh
+index 4f0d13d7b0e65b06692ccc2aeb9ca320743dd649..ea632a601b97bde60471464cda89b450a229a675 100644
+--- a/official/cv/unet3d/scripts/run_infer_310.sh
++++ b/official/cv/unet3d/scripts/run_infer_310.sh
+@@ -46,16 +46,6 @@ echo "mindir name: "$model
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/vgg16/README.md b/official/cv/vgg16/README.md
+index 303d90c778cd60435af99fc10eb707e18e30da05..7480019607480e43e531e19a256151808a18711b 100644
+--- a/official/cv/vgg16/README.md
++++ b/official/cv/vgg16/README.md
+@@ -118,7 +118,7 @@ Note that you can run the scripts based on the dataset mentioned in original pap
+ 
+ ### Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ 
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+@@ -643,6 +643,8 @@ python quick_start.py --config_path /dir_to_code/cpu_config.yaml
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ ```shell
+diff --git a/official/cv/vgg16/README_CN.md b/official/cv/vgg16/README_CN.md
+index 355a3ea163179d1ac2f25c63aaa6cea7992abff0..7fb36b3a9ea4b1a0a22d517fe27acd5bc61752c4 100644
+--- a/official/cv/vgg16/README_CN.md
++++ b/official/cv/vgg16/README_CN.md
+@@ -609,6 +609,8 @@ python quick_start.py --config_path /dir_to_code/cpu_config.yaml
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### [导出MindIR](#contents)
+ 
+ ```shell
+diff --git a/official/cv/vgg16/scripts/run_infer_310.sh b/official/cv/vgg16/scripts/run_infer_310.sh
+index 619708ecc816a4ebd533d2510a27e576a76c2c31..37a9bca2cf55c4796a822516135149c6c47db616 100644
+--- a/official/cv/vgg16/scripts/run_infer_310.sh
++++ b/official/cv/vgg16/scripts/run_infer_310.sh
+@@ -59,16 +59,6 @@ echo "dataset path: "$dataset_path
+ echo "need preprocess: "$need_preprocess
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/vit/README.md b/official/cv/vit/README.md
+index 05244dfe2e01141280e64244e7498ac03764cbb9..19bb927cfbf601036f0a7aa9556e42099fdbe067 100644
+--- a/official/cv/vit/README.md
++++ b/official/cv/vit/README.md
+@@ -65,7 +65,7 @@ Dataset used: [ImageNet2012](http://www.image-net.org/)
+ 
+ ## Mixed Precision
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+ # [Environment Requirements](#contents)
+@@ -381,6 +381,8 @@ python export.py --config_path=[CONFIG_PATH]
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Inference](#content)
+ 
+ Before performing inference, we need to export model first. Air model can only be exported in Ascend 910 environment, mindir model can be exported in any environment.
+diff --git a/official/cv/vit/README_CN.md b/official/cv/vit/README_CN.md
+index 323a5b252bb272619f7b520a636d59876e8048de..5696bd4031ef616e9e93394893c2b45c431ceb27 100644
+--- a/official/cv/vit/README_CN.md
++++ b/official/cv/vit/README_CN.md
+@@ -384,6 +384,8 @@ python export.py --config_path=[CONFIG_PATH]
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 推理
+ 
+ 在还行推理之前我们需要先导出模型。Air模型只能在昇腾910环境上导出，mindir可以在任意环境上导出。batch_size只支持1。
+diff --git a/official/cv/vit/scripts/run_infer_310.sh b/official/cv/vit/scripts/run_infer_310.sh
+index 32e537a7546e957b078c1928fb0fd2a3c80c3698..3e9cf7210814f70df1c6111081bd39be2e043374 100644
+--- a/official/cv/vit/scripts/run_infer_310.sh
++++ b/official/cv/vit/scripts/run_infer_310.sh
+@@ -50,16 +50,6 @@ echo "network: "$network
+ echo "dataset: "$dataset
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer/src/ || exit
+diff --git a/official/cv/warpctc/README.md b/official/cv/warpctc/README.md
+index 850dd57075e5f7e0d04be53d20e7b84e8ff6bced..a1d00de0d8e4b5d6339f2f84432d92e341894581 100644
+--- a/official/cv/warpctc/README.md
++++ b/official/cv/warpctc/README.md
+@@ -290,6 +290,8 @@ bash run_eval.sh [TEST_DATA_DIR] [CHECKPOINT_PATH] [DEVICE_TARGET]
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Export MindIR
+ 
+ - Export on local
+diff --git a/official/cv/warpctc/README_CN.md b/official/cv/warpctc/README_CN.md
+index c88d6564ab10d81fa95011dbb25e0ae4be7782ed..2b4a1de72066e73e8089200805fb97f2d3cc5a91 100644
+--- a/official/cv/warpctc/README_CN.md
++++ b/official/cv/warpctc/README_CN.md
+@@ -293,6 +293,8 @@ bash run_eval.sh [TEST_DATA_DIR] [CHECKPOINT_PATH] [DEVICE_TARGET]
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 导出MindIR
+ 
+ - 在本地导出
+diff --git a/official/cv/warpctc/scripts/run_infer_310.sh b/official/cv/warpctc/scripts/run_infer_310.sh
+index ba55008877dadcb1aa257578467b3b957be2b906..a0e99c571a85511e302c8c4e39aca5303d459d5f 100644
+--- a/official/cv/warpctc/scripts/run_infer_310.sh
++++ b/official/cv/warpctc/scripts/run_infer_310.sh
+@@ -38,16 +38,6 @@ echo "mindir name: "$model
+ echo "input0 path: "$input0_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function preprocess_data()
+ {
+     if [ -d preprocess_Result ]; then
+diff --git a/official/cv/xception/README.md b/official/cv/xception/README.md
+index 92e42a5615f397741c902a4fe72d7105b2f3f07b..f59f359b4a8fd0d8f3fb5aebc5f51713c8be4427 100644
+--- a/official/cv/xception/README.md
++++ b/official/cv/xception/README.md
+@@ -54,7 +54,7 @@ Dataset used can refer to paper.
+ 
+ ## [Mixed Precision](#contents)
+ 
+-The [mixed precision](https://www.mindspore.cn/tutorials/experts/en/master/others/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
++The [mixed precision](https://www.mindspore.cn/tutorials/en/master/advanced/mixed_precision.html) training method accelerates the deep learning neural network training process by using both the single-precision and half-precision data formats, and maintains the network precision achieved by the single-precision training at the same time. Mixed precision training can accelerate the computation process, reduce memory usage, and enable a larger model or batch size to be trained on specific hardware.
+ 
+ For FP16 operators, if the input data type is FP32, the backend of MindSpore will automatically handle it with reduced precision. Users could check the reduced-precision operators by enabling INFO log and then searching ‘reduce precision’.
+ 
+@@ -380,6 +380,8 @@ result: {'Loss': 1.7846775874590903, 'Top_1_Acc': 0.798735595390525, 'Top_5_Acc'
+ 
+ ## [Inference process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Inference
+ 
+ Before performing inference, we need to export model first. Air model can only be exported in Ascend 910 environment, mindir model can be exported in any environment.
+diff --git a/official/cv/xception/scripts/run_infer_310.sh b/official/cv/xception/scripts/run_infer_310.sh
+index 8906ab4a72b53999911ac0f77dc160578499be31..5765ebe29609ee9d183db255dc0dee50223c5fc5 100644
+--- a/official/cv/xception/scripts/run_infer_310.sh
++++ b/official/cv/xception/scripts/run_infer_310.sh
+@@ -46,16 +46,6 @@ echo $data_path
+ echo $label_file
+ echo $device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/yolov3_darknet53/README.md b/official/cv/yolov3_darknet53/README.md
+index 9351c7ba36e0718144fadb3f3e51f4e04efc45eb..7baac269440dfa52cabf6112b727e23a615d0be6 100644
+--- a/official/cv/yolov3_darknet53/README.md
++++ b/official/cv/yolov3_darknet53/README.md
+@@ -419,6 +419,8 @@ Currently,`FILE_FORMAT` should be in ["AIR", "ONNX", "MINDIR"]
+ 
+ ### [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ #### Usage
+ 
+ Before performing inference, the air or onnx file must be exported by export.py.
+diff --git a/official/cv/yolov3_darknet53/README_CN.md b/official/cv/yolov3_darknet53/README_CN.md
+index f2fcbcdc1ea6137202a1e9c6b89fd11a349b5b5e..5b89e806a2703b67bee1030834a8f8870083c54a 100644
+--- a/official/cv/yolov3_darknet53/README_CN.md
++++ b/official/cv/yolov3_darknet53/README_CN.md
+@@ -413,6 +413,8 @@ python export.py --ckpt_file [CKPT_PATH] --file_name [FILE_NAME] --file_format [
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 用法
+ 
+ 运行以下命令。如果在GPU上运行，请在python命令中添加`--device_target=GPU`。
+diff --git a/official/cv/yolov3_darknet53/scripts/run_infer_310.sh b/official/cv/yolov3_darknet53/scripts/run_infer_310.sh
+index e798fb1ed36ebc4f98215d40839608ccc89084ba..dd697fb23b4c8785cb371a09b06ae7ce7cc5f5b6 100644
+--- a/official/cv/yolov3_darknet53/scripts/run_infer_310.sh
++++ b/official/cv/yolov3_darknet53/scripts/run_infer_310.sh
+@@ -42,16 +42,6 @@ echo "dataset path: "$data_path
+ echo "annotation path: "$anno_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/yolov3_resnet18/README.md b/official/cv/yolov3_resnet18/README.md
+index 08e290f5083e8bf5e8af3fb1828346268c75e579..b68e80155628ad07cc2b513a4029b9b5bfc0d73e 100644
+--- a/official/cv/yolov3_resnet18/README.md
++++ b/official/cv/yolov3_resnet18/README.md
+@@ -340,6 +340,8 @@ The ckpt_file parameter is required,
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Usage
+ 
+ Before performing inference, the mindir file must be exported by export.py.
+diff --git a/official/cv/yolov3_resnet18/README_CN.md b/official/cv/yolov3_resnet18/README_CN.md
+index cfe0786d16bacc44d6b3988246624ae3c6c87c6b..02fa237e43229874c3b150c118813a0c203f4450 100644
+--- a/official/cv/yolov3_resnet18/README_CN.md
++++ b/official/cv/yolov3_resnet18/README_CN.md
+@@ -336,6 +336,8 @@ python export.py --ckpt_file [CKPT_PATH] --file_name [FILE_NAME] --file_format [
+ 
+ ## 推理过程
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 用法
+ 
+ 在执行推理之前，需要通过export.py导出mindir文件。
+diff --git a/official/cv/yolov3_resnet18/scripts/run_infer_310.sh b/official/cv/yolov3_resnet18/scripts/run_infer_310.sh
+index 25b0c2d9a0a9c5e720821be2dac8b2a57e33d23e..44c924fccfdef57ca4665ab4ff3c7ae0a1e8d0da 100644
+--- a/official/cv/yolov3_resnet18/scripts/run_infer_310.sh
++++ b/official/cv/yolov3_resnet18/scripts/run_infer_310.sh
+@@ -41,16 +41,6 @@ echo "dataset path: "$data_path
+ echo "annotation path: "$anno_path
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
+diff --git a/official/cv/yolov4/README.md b/official/cv/yolov4/README.md
+index c5e196741c909ec949e9184c87e53bae601b9422..3ea6eccd92f16ce3da5ebabed3df35800100c320 100644
+--- a/official/cv/yolov4/README.md
++++ b/official/cv/yolov4/README.md
+@@ -497,6 +497,8 @@ The ckpt_file parameter is required,
+ 
+ ## [Inference Process](#contents)
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### Usage
+ 
+ Before performing inference, the mindir file must be exported by export script on the 910 environment.
+diff --git a/official/cv/yolov4/README_CN.md b/official/cv/yolov4/README_CN.md
+index d344113702aa25e1aa938c04ba1a65e713321b07..2bf7524243fbd677ce1310954a94389afe1d59fc 100644
+--- a/official/cv/yolov4/README_CN.md
++++ b/official/cv/yolov4/README_CN.md
+@@ -504,6 +504,8 @@ python export.py --ckpt_file [CKPT_PATH] --file_name [FILE_NAME] --file_format [
+ 
+ ## [推理过程](#目录)
+ 
++**推理前需参照 [环境变量设置指引](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README_CN.md) 进行环境变量设置。**
++
+ ### 用法
+ 
+ 在执行推理之前，必须在910环境上通过导出脚本导出MINDIR文件。
+diff --git a/official/cv/yolov4/scripts/run_infer_310.sh b/official/cv/yolov4/scripts/run_infer_310.sh
+index e35ab4645ddd57ec3f49a0f12ec2850ae9ff92d6..621501ac907e7bd421fb2c306e391231b1c74b19 100644
+--- a/official/cv/yolov4/scripts/run_infer_310.sh
++++ b/official/cv/yolov4/scripts/run_infer_310.sh
+@@ -44,16 +44,6 @@ echo "dataset path: "$data_path
+ echo "device id: "$device_id
+ echo "annotation file: "$annotation_file
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer/src || exit
+diff --git a/official/cv/yolov5/README.md b/official/cv/yolov5/README.md
+index 1e8fa23c7926203176c313289e10e0ad8276c8cc..21f2bda13d2f510abeeab65544158394ace8fd92 100644
+--- a/official/cv/yolov5/README.md
++++ b/official/cv/yolov5/README.md
+@@ -283,6 +283,8 @@ Average Recall (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = 0.677
+ 
+ ## Inference Process
+ 
++**Before inference, please refer to [Environment Variable Setting Guide](https://gitee.com/mindspore/models/tree/master/utils/ascend310_env_set/README.md) to set environment variables.**
++
+ ### [Export MindIR](#contents)
+ 
+ ```shell
+diff --git a/official/cv/yolov5/scripts/run_infer_310.sh b/official/cv/yolov5/scripts/run_infer_310.sh
+index b3ebc6db63efde01df241e7f0061a66dd07d8895..0703a874aa44501aa7d55a9fabcddeb0b26f3286 100644
+--- a/official/cv/yolov5/scripts/run_infer_310.sh
++++ b/official/cv/yolov5/scripts/run_infer_310.sh
+@@ -44,16 +44,6 @@ echo "ann file: "$ann_file
+ echo "image process mode: "$DVPP
+ echo "device id: "$device_id
+ 
+-export ASCEND_HOME=/usr/local/Ascend/
+-if [ -d ${ASCEND_HOME}/ascend-toolkit ]; then
+-    export ASCEND_HOME=/usr/local/Ascend/ascend-toolkit/latest
+-else
+-    export ASCEND_HOME=/usr/local/Ascend/latest
+-fi
+-export PATH=$ASCEND_HOME/compiler/ccec_compiler/bin:$PATH
+-export LD_LIBRARY_PATH=$ASCEND_HOME/lib64:/usr/local/Ascend/driver/lib64:$LD_LIBRARY_PATH
+-export ASCEND_OPP_PATH=$ASCEND_HOME/opp
+-
+ function compile_app()
+ {
+     cd ../ascend310_infer || exit
